@@ -1,0 +1,23 @@
+[package]
+name = "phomemo-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Phomemo printer protocol encoder/decoder — pure Rust, no FFI"
+license = "Apache-2.0"
+repository = "https://github.com/phomemo-m220/phomemo_m220"
+readme = "../README.md"
+keywords = ["phomemo", "printer", "label", "protocol", "bluetooth"]
+categories = ["encoding", "parser-implementations"]
+
+[dependencies]
+lzokay-native = { version = "0.1.0", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+compress = ["dep:lzokay-native"]
+lzokay-native = ["dep:lzokay-native"]

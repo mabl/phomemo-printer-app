@@ -1,0 +1,4567 @@
+{
+  "schema_version": 1,
+  "generator": "driver/scripts/generate_media_catalog.py",
+  "sources": {
+    "local_paper": "reference-data/localPaper.json",
+    "default_printer": "reference-data/DefaultPrinter.json",
+    "default_type_group": "reference-data/DefaultTypeGroup.json"
+  },
+  "summary": {
+    "local_paper_entries": 81,
+    "paper_pools": 9,
+    "printer_types": 83,
+    "anomalies": 53
+  },
+  "paper_pools": [
+    {
+      "pool": "D30",
+      "source_series": [
+        "D30/A30/P15"
+      ],
+      "aliases": [
+        "A30",
+        "D30",
+        "P15"
+      ],
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media": [
+        {
+          "size_name": "om_25x0mm_25x0mm",
+          "width_mm": 25.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_25x14mm_25x14mm",
+          "width_mm": 25.0,
+          "length_mm": 14.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "mark"
+          ],
+          "tracking_default": "mark",
+          "paper_type_ids": [
+            3
+          ],
+          "materials": [
+            "transparent"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -103
+          ],
+          "source_group_ids": [
+            -12
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_28x0mm_28x0mm",
+          "width_mm": 28.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_28x14mm_28x14mm",
+          "width_mm": 28.0,
+          "length_mm": 14.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -105,
+            -104
+          ],
+          "source_group_ids": [
+            -13
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x12mm_30x12mm",
+          "width_mm": 30.0,
+          "length_mm": 12.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -100
+          ],
+          "source_group_ids": [
+            -9
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x14mm_30x14mm",
+          "width_mm": 30.0,
+          "length_mm": 14.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -107,
+            -106
+          ],
+          "source_group_ids": [
+            -14
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x15mm_30x15mm",
+          "width_mm": 30.0,
+          "length_mm": 15.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous",
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            0,
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -113,
+            -111
+          ],
+          "source_group_ids": [
+            -19,
+            -17
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_40x0mm_40x0mm",
+          "width_mm": 40.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_40x12mm_40x12mm",
+          "width_mm": 40.0,
+          "length_mm": 12.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -101
+          ],
+          "source_group_ids": [
+            -10
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_40x14mm_40x14mm",
+          "width_mm": 40.0,
+          "length_mm": 14.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -109,
+            -108
+          ],
+          "source_group_ids": [
+            -15
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_50x0mm_50x0mm",
+          "width_mm": 50.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_50x12mm_50x12mm",
+          "width_mm": 50.0,
+          "length_mm": 12.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -102
+          ],
+          "source_group_ids": [
+            -11
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_50x14mm_50x14mm",
+          "width_mm": 50.0,
+          "length_mm": 14.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -110
+          ],
+          "source_group_ids": [
+            -16
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_50x15mm_50x15mm",
+          "width_mm": 50.0,
+          "length_mm": 15.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -112
+          ],
+          "source_group_ids": [
+            -18
+          ],
+          "normalization": [
+            "exact"
+          ]
+        }
+      ]
+    },
+    {
+      "pool": "D480",
+      "source_series": [
+        "D480"
+      ],
+      "aliases": [
+        "D480"
+      ],
+      "default_size_name": "om_30x18mm_30x18mm",
+      "media": [
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x6mm_30x6mm",
+          "width_mm": 30.0,
+          "length_mm": 6.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.0,
+            "bottom": 1.0
+          },
+          "source_ids": [
+            -133
+          ],
+          "source_group_ids": [
+            -38
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x9mm_30x9mm",
+          "width_mm": 30.0,
+          "length_mm": 9.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.0,
+            "bottom": 1.0
+          },
+          "source_ids": [
+            -134
+          ],
+          "source_group_ids": [
+            -39
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x12mm_30x12mm",
+          "width_mm": 30.0,
+          "length_mm": 12.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -135
+          ],
+          "source_group_ids": [
+            -40
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x18mm_30x18mm",
+          "width_mm": 30.0,
+          "length_mm": 18.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -136
+          ],
+          "source_group_ids": [
+            -41
+          ],
+          "normalization": [
+            "exact"
+          ]
+        }
+      ]
+    },
+    {
+      "pool": "D50",
+      "source_series": [
+        "D50"
+      ],
+      "aliases": [
+        "D50"
+      ],
+      "default_size_name": "om_40x20mm_40x20mm",
+      "media": [
+        {
+          "size_name": "om_25x0mm_25x0mm",
+          "width_mm": 25.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_25x20mm_25x20mm",
+          "width_mm": 25.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "transparent"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -116
+          ],
+          "source_group_ids": [
+            -21
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x16mm_30x16mm",
+          "width_mm": 30.0,
+          "length_mm": 16.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -125
+          ],
+          "source_group_ids": [
+            -30
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x20mm_30x20mm",
+          "width_mm": 30.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous",
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            0,
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -126,
+            -120
+          ],
+          "source_group_ids": [
+            -31,
+            -25
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x24mm_30x24mm",
+          "width_mm": 30.0,
+          "length_mm": 24.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -127
+          ],
+          "source_group_ids": [
+            -32
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_32x0mm_32x0mm",
+          "width_mm": 32.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_32x16mm_32x16mm",
+          "width_mm": 32.0,
+          "length_mm": 16.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -114
+          ],
+          "source_group_ids": [
+            -20
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_35x0mm_35x0mm",
+          "width_mm": 35.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_35x20mm_35x20mm",
+          "width_mm": 35.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -117
+          ],
+          "source_group_ids": [
+            -22
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_40x0mm_40x0mm",
+          "width_mm": 40.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_40x16mm_40x16mm",
+          "width_mm": 40.0,
+          "length_mm": 16.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -115
+          ],
+          "source_group_ids": [
+            -21
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_40x20mm_40x20mm",
+          "width_mm": 40.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -119,
+            -118
+          ],
+          "source_group_ids": [
+            -24,
+            -23
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_45x0mm_45x0mm",
+          "width_mm": 45.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_45x20mm_45x20mm",
+          "width_mm": 45.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -121
+          ],
+          "source_group_ids": [
+            -26
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_50x0mm_50x0mm",
+          "width_mm": 50.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_50x20mm_50x20mm",
+          "width_mm": 50.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -122
+          ],
+          "source_group_ids": [
+            -27
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_55x0mm_55x0mm",
+          "width_mm": 55.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_55x20mm_55x20mm",
+          "width_mm": 55.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -123
+          ],
+          "source_group_ids": [
+            -28
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_60x0mm_60x0mm",
+          "width_mm": 60.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_60x20mm_60x20mm",
+          "width_mm": 60.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -124
+          ],
+          "source_group_ids": [
+            -29
+          ],
+          "normalization": [
+            "exact"
+          ]
+        }
+      ]
+    },
+    {
+      "pool": "M110",
+      "source_series": [
+        "M110/M120/M100"
+      ],
+      "aliases": [
+        "M100",
+        "M110",
+        "M120"
+      ],
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media": [
+        {
+          "size_name": "om_20x0mm_20x0mm",
+          "width_mm": 20.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_20x10mm_20x10mm",
+          "width_mm": 20.0,
+          "length_mm": 10.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -159
+          ],
+          "source_group_ids": [
+            -54
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_20x20mm_20x20mm",
+          "width_mm": 20.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -158
+          ],
+          "source_group_ids": [
+            -54
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x20mm_30x20mm",
+          "width_mm": 30.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -157,
+            -156
+          ],
+          "source_group_ids": [
+            -53
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_30x30mm_30x30mm",
+          "width_mm": 30.0,
+          "length_mm": 30.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -155,
+            -154
+          ],
+          "source_group_ids": [
+            -52
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_40x0mm_40x0mm",
+          "width_mm": 40.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_40x30mm_40x30mm",
+          "width_mm": 40.0,
+          "length_mm": 30.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -153,
+            -152
+          ],
+          "source_group_ids": [
+            -51
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_40x40mm_40x40mm",
+          "width_mm": 40.0,
+          "length_mm": 40.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -151,
+            -150
+          ],
+          "source_group_ids": [
+            -50
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_40x60mm_40x60mm",
+          "width_mm": 40.0,
+          "length_mm": 60.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -149,
+            -148
+          ],
+          "source_group_ids": [
+            -49
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_50x0mm_50x0mm",
+          "width_mm": 50.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_50x30mm_50x30mm",
+          "width_mm": 50.0,
+          "length_mm": 30.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -147,
+            -146
+          ],
+          "source_group_ids": [
+            -48
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_50x50mm_50x50mm",
+          "width_mm": 50.0,
+          "length_mm": 50.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -145,
+            -144
+          ],
+          "source_group_ids": [
+            -47
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        },
+        {
+          "size_name": "om_50x80mm_50x80mm",
+          "width_mm": 50.0,
+          "length_mm": 80.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -143
+          ],
+          "source_group_ids": [
+            -46
+          ],
+          "normalization": [
+            "coerced"
+          ]
+        }
+      ]
+    },
+    {
+      "pool": "M200",
+      "source_series": [
+        "M200"
+      ],
+      "aliases": [
+        "M200"
+      ],
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media": [
+        {
+          "size_name": "om_20x0mm_20x0mm",
+          "width_mm": 20.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_20x10mm_20x10mm",
+          "width_mm": 20.0,
+          "length_mm": 10.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -180
+          ],
+          "source_group_ids": [
+            -68
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_20x20mm_20x20mm",
+          "width_mm": 20.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -179
+          ],
+          "source_group_ids": [
+            -67
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x20mm_30x20mm",
+          "width_mm": 30.0,
+          "length_mm": 20.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -178,
+            -177
+          ],
+          "source_group_ids": [
+            -66
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x30mm_30x30mm",
+          "width_mm": 30.0,
+          "length_mm": 30.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -176,
+            -175
+          ],
+          "source_group_ids": [
+            -65
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_40x0mm_40x0mm",
+          "width_mm": 40.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_40x30mm_40x30mm",
+          "width_mm": 40.0,
+          "length_mm": 30.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -174,
+            -173
+          ],
+          "source_group_ids": [
+            -64
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_40x40mm_40x40mm",
+          "width_mm": 40.0,
+          "length_mm": 40.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -172,
+            -171
+          ],
+          "source_group_ids": [
+            -63
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_40x60mm_40x60mm",
+          "width_mm": 40.0,
+          "length_mm": 60.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -170,
+            -169
+          ],
+          "source_group_ids": [
+            -62
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_50x0mm_50x0mm",
+          "width_mm": 50.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_50x30mm_50x30mm",
+          "width_mm": 50.0,
+          "length_mm": 30.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -168,
+            -167
+          ],
+          "source_group_ids": [
+            -61
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_50x50mm_50x50mm",
+          "width_mm": 50.0,
+          "length_mm": 50.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap",
+            "mark"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2,
+            3
+          ],
+          "materials": [
+            "transparent",
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -166,
+            -165
+          ],
+          "source_group_ids": [
+            -60
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_50x80mm_50x80mm",
+          "width_mm": 50.0,
+          "length_mm": 80.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -164
+          ],
+          "source_group_ids": [
+            -59
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_60x0mm_60x0mm",
+          "width_mm": 60.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_60x40mm_60x40mm",
+          "width_mm": 60.0,
+          "length_mm": 40.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -163
+          ],
+          "source_group_ids": [
+            -58
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_60x80mm_60x80mm",
+          "width_mm": 60.0,
+          "length_mm": 80.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -162
+          ],
+          "source_group_ids": [
+            -57
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_70x0mm_70x0mm",
+          "width_mm": 70.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_70x40mm_70x40mm",
+          "width_mm": 70.0,
+          "length_mm": 40.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -161
+          ],
+          "source_group_ids": [
+            -56
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_70x80mm_70x80mm",
+          "width_mm": 70.0,
+          "length_mm": 80.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "gap"
+          ],
+          "tracking_default": "gap",
+          "paper_type_ids": [
+            2
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -160
+          ],
+          "source_group_ids": [
+            -55
+          ],
+          "normalization": [
+            "exact"
+          ]
+        }
+      ]
+    },
+    {
+      "pool": "P1000",
+      "source_series": [
+        "P1000"
+      ],
+      "aliases": [
+        "P1000"
+      ],
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media": [
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x6mm_30x6mm",
+          "width_mm": 30.0,
+          "length_mm": 6.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.0,
+            "bottom": 1.0
+          },
+          "source_ids": [
+            -137
+          ],
+          "source_group_ids": [
+            -42
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x9mm_30x9mm",
+          "width_mm": 30.0,
+          "length_mm": 9.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.0,
+            "bottom": 1.0
+          },
+          "source_ids": [
+            -138
+          ],
+          "source_group_ids": [
+            -43
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x12mm_30x12mm",
+          "width_mm": 30.0,
+          "length_mm": 12.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -139
+          ],
+          "source_group_ids": [
+            -44
+          ],
+          "normalization": [
+            "exact"
+          ]
+        }
+      ]
+    },
+    {
+      "pool": "P12",
+      "source_series": [
+        "P12/LT12/F12"
+      ],
+      "aliases": [
+        "F12",
+        "LT12",
+        "P12"
+      ],
+      "default_size_name": "om_30x6mm_30x6mm",
+      "media": [
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x6mm_30x6mm",
+          "width_mm": 30.0,
+          "length_mm": 6.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.0,
+            "bottom": 1.0
+          },
+          "source_ids": [
+            -142
+          ],
+          "source_group_ids": [
+            -45
+          ],
+          "normalization": [
+            "exact"
+          ]
+        }
+      ]
+    },
+    {
+      "pool": "P3100",
+      "source_series": [
+        "P3100/P3200/M960/D1600/M950/LM1600"
+      ],
+      "aliases": [
+        "D1600",
+        "LM1600",
+        "M950",
+        "M960",
+        "P3100",
+        "P3200"
+      ],
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media": [
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x9mm_30x9mm",
+          "width_mm": 30.0,
+          "length_mm": 9.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.0,
+            "bottom": 1.0
+          },
+          "source_ids": [
+            -140
+          ],
+          "source_group_ids": [
+            -43
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x12mm_30x12mm",
+          "width_mm": 30.0,
+          "length_mm": 12.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -141
+          ],
+          "source_group_ids": [
+            -44
+          ],
+          "normalization": [
+            "exact"
+          ]
+        }
+      ]
+    },
+    {
+      "pool": "P780",
+      "source_series": [
+        "P780/D680"
+      ],
+      "aliases": [
+        "D680",
+        "P780"
+      ],
+      "default_size_name": "om_30x24mm_30x24mm",
+      "media": [
+        {
+          "size_name": "om_30x0mm_30x0mm",
+          "width_mm": 30.0,
+          "length_mm": 0.0,
+          "origin": "driver_synthetic_continuous_roll",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 0.0,
+            "right": 0.0,
+            "top": 0.0,
+            "bottom": 0.0
+          },
+          "source_ids": [],
+          "source_group_ids": [],
+          "normalization": [
+            "synthetic"
+          ]
+        },
+        {
+          "size_name": "om_30x6mm_30x6mm",
+          "width_mm": 30.0,
+          "length_mm": 6.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.0,
+            "right": 1.0,
+            "top": 1.0,
+            "bottom": 1.0
+          },
+          "source_ids": [
+            -128
+          ],
+          "source_group_ids": [
+            -33
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x9mm_30x9mm",
+          "width_mm": 30.0,
+          "length_mm": 9.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.0,
+            "bottom": 1.0
+          },
+          "source_ids": [
+            -129
+          ],
+          "source_group_ids": [
+            -34
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x12mm_30x12mm",
+          "width_mm": 30.0,
+          "length_mm": 12.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -130
+          ],
+          "source_group_ids": [
+            -35
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x18mm_30x18mm",
+          "width_mm": 30.0,
+          "length_mm": 18.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 1.5,
+            "bottom": 1.5
+          },
+          "source_ids": [
+            -131
+          ],
+          "source_group_ids": [
+            -36
+          ],
+          "normalization": [
+            "exact"
+          ]
+        },
+        {
+          "size_name": "om_30x24mm_30x24mm",
+          "width_mm": 30.0,
+          "length_mm": 24.0,
+          "origin": "pm_local_paper",
+          "tracking_supported": [
+            "continuous"
+          ],
+          "tracking_default": "continuous",
+          "paper_type_ids": [
+            0
+          ],
+          "materials": [
+            "white"
+          ],
+          "offsets_mm": {
+            "left": 1.5,
+            "right": 1.5,
+            "top": 3.0,
+            "bottom": 3.0
+          },
+          "source_ids": [
+            -132
+          ],
+          "source_group_ids": [
+            -37
+          ],
+          "normalization": [
+            "exact"
+          ]
+        }
+      ]
+    }
+  ],
+  "printer_types": [
+    {
+      "type": "A30",
+      "display_name": "A30",
+      "series": "A30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q294",
+        "Q295",
+        "Q574",
+        "Q695",
+        "Q732",
+        "Q772"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "B246D",
+      "display_name": "B246D",
+      "series": "B246D",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q027",
+        "Q081",
+        "Q100",
+        "Q101",
+        "Q102",
+        "Q103"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "BMW-M3",
+      "display_name": "BMW-M3",
+      "series": "M3",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "BMW-M3"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "D10",
+      "display_name": "D10",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q222"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D1600",
+      "display_name": "D1600",
+      "series": "D1600",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q175"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D1600D",
+      "display_name": "D1600D",
+      "series": "D1600",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q176"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "D20",
+      "display_name": "D20",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q152"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D30",
+      "display_name": "D30",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "MIHP",
+        "Q018",
+        "Q040",
+        "Q046",
+        "Q050",
+        "Q069",
+        "Q092",
+        "Q093",
+        "Q107",
+        "Q109",
+        "Q110",
+        "Q138",
+        "Q159",
+        "Q162",
+        "Q172",
+        "Q189",
+        "Q223",
+        "Q455",
+        "Q457"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D30N",
+      "display_name": "D30N",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q628",
+        "Q760"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "D30Pro",
+      "display_name": "D30Pro",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q049",
+        "Q099",
+        "Q135",
+        "Q168"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D30S",
+      "display_name": "D30S",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q036",
+        "Q048",
+        "Q097",
+        "Q111",
+        "Q125",
+        "Q149",
+        "Q150",
+        "Q183",
+        "Q543",
+        "Q601",
+        "Q694"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D30S New",
+      "display_name": "D30S New",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q586"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "D30S Pro",
+      "display_name": "D30S Pro",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q590"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "D31",
+      "display_name": "D31",
+      "series": "Q30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q269"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D32",
+      "display_name": "D32",
+      "series": "Q30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q268",
+        "Q582",
+        "Q588"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D35",
+      "display_name": "D35",
+      "series": "D30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q126",
+        "Q139",
+        "Q587"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D480BT",
+      "display_name": "D480BT",
+      "series": "D480",
+      "pool": "D480",
+      "default_size_name": "om_30x18mm_30x18mm",
+      "media_count": 5,
+      "sn_prefixes": [
+        "Q215",
+        "Q486"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D480BT PRO",
+      "display_name": "D480BT PRO",
+      "series": "D480",
+      "pool": "D480",
+      "default_size_name": "om_30x18mm_30x18mm",
+      "media_count": 5,
+      "sn_prefixes": [
+        "Q360",
+        "Q407"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "D50",
+      "display_name": "D50",
+      "series": "D50",
+      "pool": "D50",
+      "default_size_name": "om_40x20mm_40x20mm",
+      "media_count": 21,
+      "sn_prefixes": [
+        "Q083",
+        "Q136",
+        "Q518"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "D68",
+      "display_name": "D68",
+      "series": "M8",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "D68"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "D680BT",
+      "display_name": "D680BT",
+      "series": "D680",
+      "pool": "P780",
+      "default_size_name": "om_30x24mm_30x24mm",
+      "media_count": 6,
+      "sn_prefixes": [
+        "Q216"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "D80",
+      "display_name": "D80",
+      "series": "M8",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "D80"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "DM170",
+      "display_name": "DM170",
+      "series": "DM170",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q744"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "E50",
+      "display_name": "E50",
+      "series": "E50",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q575"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "E50Pro",
+      "display_name": "E50Pro",
+      "series": "E50",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q458",
+        "Q736"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "E600S",
+      "display_name": "E600S",
+      "series": "E600S",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q019",
+        "Q023",
+        "Q447",
+        "Q497"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "E8000",
+      "display_name": "E8000",
+      "series": "E600S",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q296",
+        "Q314",
+        "Q625"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "E9000",
+      "display_name": "E9000",
+      "series": "E9000",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q402",
+        "Q477",
+        "Q686",
+        "Q710",
+        "Q720",
+        "Q784",
+        "Q785",
+        "Q901",
+        "Q902",
+        "Q903"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "F12",
+      "display_name": "F12",
+      "series": "F12",
+      "pool": "P12",
+      "default_size_name": "om_30x6mm_30x6mm",
+      "media_count": 2,
+      "sn_prefixes": [
+        "Q408",
+        "Q643",
+        "Q644"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "LM1600",
+      "display_name": "LM1600",
+      "series": "LM1600",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q310",
+        "Q404",
+        "Q444"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "LT12",
+      "display_name": "LT12",
+      "series": "LT12",
+      "pool": "P12",
+      "default_size_name": "om_30x6mm_30x6mm",
+      "media_count": 2,
+      "sn_prefixes": [
+        "Q309",
+        "Q396",
+        "Q445"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M100",
+      "display_name": "M100",
+      "series": "M150",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q378",
+        "Q449"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M102",
+      "display_name": "M102",
+      "series": "M120",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q306",
+        "Q481",
+        "Q485"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M105",
+      "display_name": "M105",
+      "series": "M110",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q317"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M108",
+      "display_name": "M108",
+      "series": "M110",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q042",
+        "Q045",
+        "Q061",
+        "Q062",
+        "Q194",
+        "Q431",
+        "Q437",
+        "Q692"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M108TA",
+      "display_name": "M108TA",
+      "series": "M110",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q524",
+        "Q593",
+        "Q668"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M108_Z",
+      "display_name": "M108_Z",
+      "series": "M110",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q120"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M109",
+      "display_name": "M109",
+      "series": "M110",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q043"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M110",
+      "display_name": "M110",
+      "series": "M110",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "M002",
+        "Q002",
+        "Q011",
+        "Q026",
+        "Q034",
+        "Q119",
+        "Q192",
+        "Q468"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M110C",
+      "display_name": "M110C",
+      "series": "M110",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q199",
+        "Q450",
+        "Q467"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M110SA",
+      "display_name": "M110SA",
+      "series": "M110",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q522",
+        "Q759"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M120",
+      "display_name": "M120",
+      "series": "M120",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q009",
+        "Q244",
+        "Q274",
+        "Q451",
+        "Q592"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M120C",
+      "display_name": "M120C",
+      "series": "M120",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q158",
+        "Q193"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M126",
+      "display_name": "M126",
+      "series": "M120",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q038"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M150",
+      "display_name": "M150",
+      "series": "M150",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q377",
+        "Q424",
+        "Q448",
+        "Q708"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M200",
+      "display_name": "M200",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q006",
+        "Q086",
+        "Q104",
+        "Q121",
+        "Q156",
+        "Q452"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M200C",
+      "display_name": "M200C",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q197"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M206",
+      "display_name": "M206",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q017"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M208",
+      "display_name": "M208",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q053"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M209",
+      "display_name": "M209",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q305"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M210",
+      "display_name": "M210",
+      "series": "M210",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "YCN-M210"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M219",
+      "display_name": "M219",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q057",
+        "Q157"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M220",
+      "display_name": "M220",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q054",
+        "Q155"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M220C",
+      "display_name": "M220C",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q198",
+        "Q453",
+        "Q584"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M220S",
+      "display_name": "M220S",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q058"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M221",
+      "display_name": "M221",
+      "series": "M200",
+      "pool": "M200",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 20,
+      "sn_prefixes": [
+        "Q218",
+        "Q420",
+        "Q421",
+        "Q454",
+        "Q523",
+        "Q525",
+        "Q526",
+        "Q554",
+        "Q555",
+        "Q632",
+        "Q633",
+        "Q765",
+        "Q766"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M330",
+      "display_name": "M330",
+      "series": "M330",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q464"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M332",
+      "display_name": "M332",
+      "series": "M330",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q465"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M420",
+      "display_name": "M420",
+      "series": "M400",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q380"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M421",
+      "display_name": "M421",
+      "series": "M400",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "Q379"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M8",
+      "display_name": "M8",
+      "series": "M8",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "M8"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "M950",
+      "display_name": "M950",
+      "series": "M950",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q311",
+        "Q405"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M960",
+      "display_name": "M960",
+      "series": "M960",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q186"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "M960D",
+      "display_name": "M960D",
+      "series": "M960",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q187"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "P1000",
+      "display_name": "P1000",
+      "series": "P1000",
+      "pool": "P1000",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 4,
+      "sn_prefixes": [
+        "Q004",
+        "Q030",
+        "Q031",
+        "Q035",
+        "Q078",
+        "Q079"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P12",
+      "display_name": "P12",
+      "series": "P12",
+      "pool": "P12",
+      "default_size_name": "om_30x6mm_30x6mm",
+      "media_count": 2,
+      "sn_prefixes": [
+        "Q037",
+        "Q090",
+        "Q091",
+        "Q094",
+        "Q112",
+        "Q129",
+        "Q245"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P12Pro",
+      "display_name": "P12Pro",
+      "series": "P12",
+      "pool": "P12",
+      "default_size_name": "om_30x6mm_30x6mm",
+      "media_count": 2,
+      "sn_prefixes": [
+        "Q113",
+        "Q534"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P24",
+      "display_name": "P24",
+      "series": "P780",
+      "pool": "P780",
+      "default_size_name": "om_30x24mm_30x24mm",
+      "media_count": 6,
+      "sn_prefixes": [
+        "Q373"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P3100D",
+      "display_name": "P3100D",
+      "series": "P3100",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q032",
+        "Q051"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P3100DJ",
+      "display_name": "P3100DJ",
+      "series": "P3100",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q133"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P3200",
+      "display_name": "P3200",
+      "series": "P3200",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q173"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P3200D",
+      "display_name": "P3200D",
+      "series": "P3200",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q174"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P50",
+      "display_name": "P50",
+      "series": "D50",
+      "pool": "D50",
+      "default_size_name": "om_40x20mm_40x20mm",
+      "media_count": 21,
+      "sn_prefixes": [
+        "Q264"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "P5100",
+      "display_name": "P5100",
+      "series": "P5100",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "Q007"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "P580",
+      "display_name": "P580",
+      "series": "P780",
+      "pool": "P780",
+      "default_size_name": "om_30x24mm_30x24mm",
+      "media_count": 6,
+      "sn_prefixes": [
+        "Q393"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P780BT",
+      "display_name": "P780BT",
+      "series": "P780",
+      "pool": "P780",
+      "default_size_name": "om_30x24mm_30x24mm",
+      "media_count": 6,
+      "sn_prefixes": [
+        "Q217"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "P780BT PRO",
+      "display_name": "P780BT PRO",
+      "series": "P780",
+      "pool": "P780",
+      "default_size_name": "om_30x24mm_30x24mm",
+      "media_count": 6,
+      "sn_prefixes": [
+        "Q419"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "PM-201",
+      "display_name": "PM-201",
+      "series": "PM-201",
+      "pool": "P3100",
+      "default_size_name": "om_30x12mm_30x12mm",
+      "media_count": 3,
+      "sn_prefixes": [
+        "PM-201"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    },
+    {
+      "type": "Q30",
+      "display_name": "Q30",
+      "series": "Q30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q082",
+        "Q130",
+        "Q190",
+        "Q224",
+        "Q591"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "Q30S",
+      "display_name": "Q30S",
+      "series": "Q30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q163",
+        "Q169",
+        "Q225"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "Q31",
+      "display_name": "Q31",
+      "series": "Q30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q179",
+        "Q205",
+        "Q226"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "Q32",
+      "display_name": "Q32",
+      "series": "Q30",
+      "pool": "D30",
+      "default_size_name": "om_30x15mm_30x15mm",
+      "media_count": 15,
+      "sn_prefixes": [
+        "Q191",
+        "Q227"
+      ],
+      "sources": [
+        "DefaultPrinter.json",
+        "DefaultTypeGroup.json"
+      ]
+    },
+    {
+      "type": "YCN-M3",
+      "display_name": "YCN-M3",
+      "series": "M3",
+      "pool": "M110",
+      "default_size_name": "om_40x30mm_40x30mm",
+      "media_count": 14,
+      "sn_prefixes": [
+        "YCN-M3"
+      ],
+      "sources": [
+        "DefaultPrinter.json"
+      ]
+    }
+  ],
+  "anomalies": [
+    {
+      "kind": "paper_type_coercion",
+      "id": -143,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -144,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -145,
+      "raw": ":3",
+      "parsed": 3,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -146,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -147,
+      "raw": ":3",
+      "parsed": 3,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -148,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -149,
+      "raw": ":3",
+      "parsed": 3,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -150,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -151,
+      "raw": ":3",
+      "parsed": 3,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -152,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -153,
+      "raw": ":3",
+      "parsed": 3,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -154,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -155,
+      "raw": ":3",
+      "parsed": 3,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -156,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -157,
+      "raw": ":3",
+      "parsed": 3,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -158,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "paper_type_coercion",
+      "id": -159,
+      "raw": ":2",
+      "parsed": 2,
+      "reason": "non-digit characters present"
+    },
+    {
+      "kind": "series_fallback",
+      "series": "M210",
+      "fallback_pool": "M110",
+      "reason": "M/E family fallback from PM mLocalPapers default"
+    },
+    {
+      "kind": "series_fallback",
+      "series": "M3",
+      "fallback_pool": "M110",
+      "reason": "M/E family fallback from PM mLocalPapers default"
+    },
+    {
+      "kind": "series_fallback",
+      "series": "M330",
+      "fallback_pool": "M110",
+      "reason": "M/E family fallback from PM mLocalPapers default"
+    },
+    {
+      "kind": "series_fallback",
+      "series": "M8",
+      "fallback_pool": "M110",
+      "reason": "M/E family fallback from PM mLocalPapers default"
+    },
+    {
+      "kind": "series_fallback",
+      "series": "P5100",
+      "fallback_pool": "P3100",
+      "reason": "P-family fallback from PM pLocalPapers default"
+    },
+    {
+      "kind": "series_fallback",
+      "series": "PM-201",
+      "fallback_pool": "P3100",
+      "reason": "P-family fallback from PM pLocalPapers default"
+    },
+    {
+      "kind": "series_unknown",
+      "series": "B246D",
+      "fallback_pool": "M110"
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D30",
+      "width_mm": 25.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D30",
+      "width_mm": 28.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D30",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D30",
+      "width_mm": 40.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D30",
+      "width_mm": 50.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 25.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 32.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 35.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 40.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 45.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 50.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 55.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D50",
+      "width_mm": 60.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "P780",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "D480",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "P1000",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "P3100",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "P12",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M110",
+      "width_mm": 20.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M110",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M110",
+      "width_mm": 40.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M110",
+      "width_mm": 50.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M200",
+      "width_mm": 20.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M200",
+      "width_mm": 30.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M200",
+      "width_mm": 40.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M200",
+      "width_mm": 50.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M200",
+      "width_mm": 60.0
+    },
+    {
+      "kind": "synthetic_continuous_roll",
+      "pool": "M200",
+      "width_mm": 70.0
+    }
+  ]
+}

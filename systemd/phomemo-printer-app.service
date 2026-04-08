@@ -1,0 +1,17 @@
+[Unit]
+Description=Phomemo PAPPL Printer Application
+After=bluetooth.target cups.service network-online.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/etc/default/phomemo-printer-app
+ExecStart=/usr/local/bin/phomemo-printer-app server
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+/target/
+/phomemo-printer-app
+/generated/
+
+# Local environment
+.env
+.env.*
+.venv/
+.direnv/
+*.log
+
+# Archives and editor/OS noise
+*.zip
+.DS_Store
