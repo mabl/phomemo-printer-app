@@ -272,7 +272,8 @@ mod tests {
         let decoder = png::Decoder::new(Cursor::new(png));
         let mut reader = decoder.read_info().expect("PNG decodes");
         let dims = reader.info().pixel_dims;
-        let mut pixels = vec![0; reader.output_buffer_size()];
+        let size = reader.output_buffer_size().expect("frame fits in memory");
+        let mut pixels = vec![0; size];
         let info = reader.next_frame(&mut pixels).expect("frame decodes");
         (info, dims, pixels)
     }

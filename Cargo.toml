@@ -1,10 +1,12 @@
 [workspace]
 members = ["phomemo-protocol", "phomemo-pappl"]
-resolver = "2"
+# Rust-version-aware: `cargo update` prefers dependency releases that
+# support `rust-version`.
+resolver = "3"
 
 [workspace.package]
 # Minimum: `u8::cast_signed` (1.87; clippy::incompatible_msrv enforces this)
-# and the locked zvariant_derive 5.10 (rust-version 1.87).
+# and the locked zbus 5.19 / zvariant 5.15 (rust-version 1.87).
 rust-version = "1.87"
 
 [workspace.lints.clippy]
