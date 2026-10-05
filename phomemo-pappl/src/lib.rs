@@ -975,7 +975,8 @@ pub unsafe extern "C" fn pm_bt_status(handle: *mut BtConnectionHandle) -> c_uint
                 Ok(n) => collected.extend_from_slice(&buf[..n]),
             }
 
-            let (responses, consumed) = phomemo_protocol::responses::parse_all_resilient(&collected);
+            let (responses, consumed) =
+                phomemo_protocol::responses::parse_all_resilient(&collected);
             if consumed > 0 {
                 collected.drain(..consumed);
             }
@@ -1122,8 +1123,14 @@ mod tests {
         let _ = apply_status_response(&mut state, &Response::Temperature { overheated: true });
 
         assert!(state.is_complete());
-        assert_eq!(state.reasons & PAPPL_PREASON_COVER_OPEN, PAPPL_PREASON_COVER_OPEN);
-        assert_eq!(state.reasons & PAPPL_PREASON_MEDIA_EMPTY, PAPPL_PREASON_MEDIA_EMPTY);
+        assert_eq!(
+            state.reasons & PAPPL_PREASON_COVER_OPEN,
+            PAPPL_PREASON_COVER_OPEN
+        );
+        assert_eq!(
+            state.reasons & PAPPL_PREASON_MEDIA_EMPTY,
+            PAPPL_PREASON_MEDIA_EMPTY
+        );
         assert_eq!(state.reasons & PAPPL_PREASON_OTHER, PAPPL_PREASON_OTHER);
     }
 }

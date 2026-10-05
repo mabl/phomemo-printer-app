@@ -4,9 +4,24 @@ Native PAPPL printer application for Phomemo Bluetooth label printers.
 
 ## Build
 
+The Nix flake provides a dev shell with the full toolchain (Rust, clippy,
+rustfmt, cbindgen, PAPPL 1.x, a C compiler):
+
 ```bash
-make
+nix develop
+make            # build ./phomemo-printer-app
+make check      # fmt-check, clippy, tests, C -Werror, build (what CI runs)
 ```
+
+Other targets: `make fmt`, `make fmt-check`, `make lint` (clippy),
+`make c-lint` (C sources with `-Werror`), `make test`, `make clean`.
+
+Without Nix you need:
+
+- Rust >= 1.87 (cargo, rustc; plus clippy and rustfmt for `make check`)
+- cbindgen
+- a C compiler, GNU make and pkg-config
+- PAPPL 1.x development files (found via `pkg-config pappl`)
 
 ## Media catalog generation
 
@@ -25,12 +40,6 @@ python scripts/generate_media_catalog.py \
 Generated file:
 
 - `phomemo-protocol/data/media_catalog.json`
-
-Run strict lints:
-
-```bash
-make lint
-```
 
 ## Run locally
 

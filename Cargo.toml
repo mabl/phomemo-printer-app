@@ -2,6 +2,11 @@
 members = ["phomemo-protocol", "phomemo-pappl"]
 resolver = "2"
 
+[workspace.package]
+# Minimum: `u8::cast_signed` (1.87; clippy::incompatible_msrv enforces this)
+# and the locked zvariant_derive 5.10 (rust-version 1.87).
+rust-version = "1.87"
+
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }

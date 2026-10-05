@@ -3,41 +3,31 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    { nixpkgs, ... }:
     let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs { inherit system; };
-    in {
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          # Rust toolchain
-          cargo
-          rustc
-          rust-cbindgen
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+    in
+    {
+      formatter = forAllSystems (pkgs: pkgs.nixfmt);
 
-          # C toolchain
-          clang
-          pkg-config
-          gnumake
-
-          # PAPPL framework
-          pappl
-
-          # Bluetooth (BlueZ headers + libs for SDP/RFCOMM)
-          bluez
-
-          # For bindgen if we add it later
-          llvmPackages.libclang
-        ];
-
-        LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-
-        shellHook = ''
-          echo "Phomemo Printer App — dev shell"
-          echo "  make        — build everything"
-          echo "  make test   — run Rust tests"
-          echo "  make clean  — clean all artifacts"
-        '';
-      };
+      # mkShell's stdenv provides the C compiler ($CC) and GNU make.
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            cargo
+            rustc
+            clippy
+            rustfmt
+            rust-cbindgen
+            pkg-config
+            pappl # PAPPL 1.x; the driver uses the 1.4 callback signatures
+          ];
+        };
+      });
     };
 }
