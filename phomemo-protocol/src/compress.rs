@@ -4,13 +4,13 @@
 //! [`BLOCK_SIZE`] input bytes, each compressed independently and prefixed
 //! with its compressed length as three little-endian bytes
 //! (`re/protocol/bitmap-encoding.md`, "Compression (miniLZO)"). This module
-//! produces that format with `lzokay-native`, a pure-Rust LZO1X compressor
+//! produces that format with `lzokay`, a safe pure-Rust LZO1X compressor
 //! whose output miniLZO decompresses.
 
 use std::error::Error;
 use std::fmt;
 
-use lzokay_native::Dict;
+use lzokay::compress::Dict;
 
 /// Uncompressed bytes per block (the vendor library's `allocSize`).
 pub const BLOCK_SIZE: usize = 4096;
@@ -21,7 +21,7 @@ pub struct CompressError(Repr);
 
 #[derive(Debug)]
 enum Repr {
-    Lzo(lzokay_native::Error),
+    Lzo(lzokay::Error),
     BlockTooLarge(usize),
 }
 
@@ -64,7 +64,7 @@ pub fn compress_blocks(data: &[u8]) -> Result<Vec<u8>, CompressError> {
     let mut dict = Dict::new();
     let mut out = Vec::with_capacity(data.len() / 2);
     for block in data.chunks(BLOCK_SIZE) {
-        let compressed = lzokay_native::compress_with_dict(block, &mut dict)
+        let compressed = lzokay::compress::compress_with_dict(block, &mut dict)
             .map_err(|err| CompressError(Repr::Lzo(err)))?;
         let prefix = length_prefix(compressed.len())
             .ok_or(CompressError(Repr::BlockTooLarge(compressed.len())))?;
@@ -117,7 +117,10 @@ mod tests {
         blocks(compressed)
             .into_iter()
             .flat_map(|block| {
-                lzokay_native::decompress_all(block, Some(BLOCK_SIZE)).expect("valid LZO block")
+                let mut out = vec![0; BLOCK_SIZE];
+                let len = lzokay::decompress::decompress(block, &mut out).expect("valid LZO block");
+                out.truncate(len);
+                out
             })
             .collect()
     }
@@ -144,7 +147,7 @@ mod tests {
         let data = sample(3 * BLOCK_SIZE);
         let compressed = compress_blocks(&data).expect("compressible");
         for (block, input) in blocks(&compressed).into_iter().zip(data.chunks(BLOCK_SIZE)) {
-            assert_eq!(block, lzokay_native::compress(input).expect("compressible"));
+            assert_eq!(block, lzokay::compress::compress(input).expect("compressible"));
         }
     }
 
