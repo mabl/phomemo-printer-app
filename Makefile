@@ -8,8 +8,6 @@ CPPFLAGS ?=
 CFLAGS   ?= -O2
 LDFLAGS  ?=
 LDLIBS   ?=
-# Always applied, even when the environment overrides CFLAGS.
-WARN_CFLAGS := -Wall -Wextra
 CARGO    ?= cargo
 CBINDGEN ?= cbindgen
 PREFIX   ?= /usr/local
@@ -22,6 +20,13 @@ ENV_DIR  ?= /etc/default
 # the paths below must match what cargo actually writes.
 CARGO_TARGET_DIR ?= target
 export CARGO_TARGET_DIR
+
+# The application's version: phomemo-pappl's, so that its Cargo.toml is the
+# one place it is set. `cargo pkgid` prints a package ID ending in "#0.1.0"
+# (or "#phomemo-pappl@0.1.0"). A literal "#" needs a variable to work with
+# GNU make before and after 4.3.
+HASH    := \#
+VERSION := $(lastword $(subst @, ,$(subst $(HASH), ,$(shell $(CARGO) pkgid --offline -p phomemo-pappl))))
 
 # Pin to PAPPL 1.x — the driver uses 1.4 callback signatures.
 # A clean migration to pappl2 (different ABI) should be a separate effort.
@@ -41,13 +46,22 @@ UNIT_FILE := systemd/phomemo-printer-app.service
 ENV_FILE_EXAMPLE := systemd/phomemo-printer-app.env.example
 
 C_SRCS    := c/main.c c/driver.c c/device_bt.c c/media.c
-C_FLAGS_ALL = $(WARN_CFLAGS) $(CPPFLAGS) $(CFLAGS) -I generated $(PAPPL_CFLAGS)
+C_HDRS    := c/phomemo.h
+C_LINT    := $(C_SRCS:c/%.c=c-lint-%)
+# Always applied, even when the environment overrides CPPFLAGS or CFLAGS:
+# the language and POSIX interfaces the sources are written to, the warnings
+# they are kept clean of, and the version.
+STD_CFLAGS  := -std=c17 -D_POSIX_C_SOURCE=200809L
+WARN_CFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 \
+               -Wstrict-prototypes -Wmissing-prototypes -Wvla
+C_FLAGS_ALL = $(STD_CFLAGS) $(WARN_CFLAGS) -DPHOMEMO_VERSION='"$(VERSION)"' \
+              $(CPPFLAGS) $(CFLAGS) -I generated $(PAPPL_CFLAGS)
 # Sources cbindgen reads, plus their directories so that adding, removing or
 # renaming a module also regenerates the header.
 PAPPL_CRATE_SRCS := $(shell find phomemo-pappl/src -name '*.rs')
 PAPPL_CRATE_DIRS := $(shell find phomemo-pappl/src -type d)
 
-.PHONY: all rust header clean test lint c-lint fmt fmt-check check FORCE \
+.PHONY: all rust header clean test lint c-lint $(C_LINT) fmt fmt-check check FORCE \
         install uninstall install-systemd uninstall-systemd
 
 all: $(BIN)
@@ -80,7 +94,7 @@ $(GEN_HDR): $(PAPPL_CRATE_SRCS) $(PAPPL_CRATE_DIRS) \
 header: $(GEN_HDR)
 
 # 3. Compile and link
-$(BIN): $(RUST_LIB) $(GEN_HDR) $(C_SRCS)
+$(BIN): $(RUST_LIB) $(GEN_HDR) $(C_SRCS) $(C_HDRS)
 	$(CC) $(C_FLAGS_ALL) $(LDFLAGS) -o $@ $(C_SRCS) \
 	  $(RUST_LIB) $(PAPPL_LIBS) $$(cat "$(RUST_NATIVE_LIBS_FILE)") $(LDLIBS)
 
@@ -91,13 +105,13 @@ test:
 lint:
 	$(CARGO) clippy --workspace --all-targets --locked -- -D warnings
 
-# Compile every C file with -Werror to a scratch output. Always runs, so C
-# warnings fail `make check` even when the binary is already up to date.
-c-lint: $(GEN_HDR)
-	@set -e; for f in $(C_SRCS); do \
-	  echo "$(CC) $(C_FLAGS_ALL) -Werror -c $$f -o /dev/null"; \
-	  $(CC) $(C_FLAGS_ALL) -Werror -c $$f -o /dev/null; \
-	done
+# Compile every C file with the build's flags plus -Werror to a scratch
+# output. Phony, so C warnings fail `make check` even when the binary is
+# already up to date.
+c-lint: $(C_LINT)
+
+$(C_LINT): c-lint-%: c/%.c $(C_HDRS) $(GEN_HDR)
+	$(CC) $(C_FLAGS_ALL) -Werror -c $< -o /dev/null
 
 fmt:
 	$(CARGO) fmt --all

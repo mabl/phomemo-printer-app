@@ -6,7 +6,7 @@
 //! and Rust maps a view back to its [`Model`] by address rather than by
 //! reading strings back through C pointers.
 
-use std::ffi::{CStr, CString, c_char, c_int, c_uint};
+use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_ushort};
 use std::ptr;
 use std::sync::LazyLock;
 
@@ -15,6 +15,7 @@ use phomemo_protocol::model::{self, ModelInfo};
 
 use crate::media;
 use crate::pappl::tracking_flag;
+use crate::raster::MAX_ROWS;
 
 /// A printer model and its media.
 #[derive(Debug)]
@@ -29,9 +30,58 @@ pub struct Model {
     product: CString,
     /// One per preset in `pool.media`, in the same order.
     media_names: Vec<CString>,
+    /// The PWG names of [`Model::custom_range`]'s bounds.
+    custom_range_names: [CString; 2],
     /// Keeps the string `view.name` points to.
     _name: CString,
     view: PmModel,
+}
+
+/// A media size in hundredths of a millimetre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MediaSize {
+    /// Across the media.
+    pub width: c_int,
+    /// Along the media; 0 for a roll.
+    pub length: c_int,
+}
+
+/// The custom media sizes a model takes, as PAPPL describes them: the
+/// `roll_min_` and `roll_max_` entries of a driver's media list, from which
+/// PAPPL derives `media-size-supported`'s range and checks ready media
+/// (`printer-driver.c`, `make_attrs` and `validate_ready`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CustomRange {
+    /// The narrowest and shortest size.
+    pub min: MediaSize,
+    /// The widest and longest size.
+    pub max: MediaSize,
+}
+
+impl CustomRange {
+    /// PAPPL's names for the bounds: `roll_min_<w>x<l>mm` and
+    /// `roll_max_<w>x<l>mm`.
+    fn pwg_names(&self) -> Option<[CString; 2]> {
+        let name = |bound: &str, size: MediaSize| {
+            CString::new(format!(
+                "roll_{bound}_{}x{}mm",
+                millimetres(size.width),
+                millimetres(size.length)
+            ))
+            .ok()
+        };
+        Some([name("min", self.min)?, name("max", self.max)?])
+    }
+}
+
+/// `hundredths` of a millimetre in millimetres, without trailing zeros.
+fn millimetres(hundredths: c_int) -> String {
+    let (whole, fraction) = (hundredths / 100, hundredths % 100);
+    match fraction {
+        0 => whole.to_string(),
+        _ if fraction % 10 == 0 => format!("{whole}.{}", fraction / 10),
+        _ => format!("{whole}.{fraction:02}"),
+    }
 }
 
 /// A model as C sees it: the strings PAPPL's driver table needs.
@@ -88,7 +138,7 @@ impl Model {
             driver_name: driver_name.as_ptr(),
             device_id: device_id.as_ptr(),
         };
-        Some(Self {
+        let mut model = Self {
             info,
             pool,
             default_media,
@@ -96,9 +146,13 @@ impl Model {
             device_id,
             product,
             media_names,
+            custom_range_names: Default::default(),
             _name: name,
             view,
-        })
+        };
+        // The range follows from the model's other properties.
+        model.custom_range_names = model.custom_range()?.pwg_names()?;
+        Some(model)
     }
 
     /// Every model, in the order of [`model::all`].
@@ -207,20 +261,101 @@ impl Model {
     /// millimetre: whether it reaches across the head no further than the
     /// head itself, or than media in the catalog for the model does -
     /// labels may be a little wider than the head (50 mm on an M110's
-    /// 48 mm head, 15 mm on a D30's 12 mm head) and are cropped to it.
+    /// 48 mm head, 15 mm on a D30's 12 mm head) and are cropped to it -
+    /// and whether it runs along the feed no further than one page can
+    /// ([`Self::longest_page_hundredths_mm`]).
     pub fn accepts_media(&self, width: c_int, length: c_int) -> bool {
-        let widest = self
-            .pool
+        width > 0
+            && length >= 0
+            && self
+                .across_head(width, length)
+                .is_none_or(|across| across <= self.widest_across_head())
+            && self
+                .along_feed(width, length)
+                .is_none_or(|along| along <= self.longest_page_hundredths_mm())
+    }
+
+    /// How far the widest media the model takes reaches across the head,
+    /// in hundredths of a millimetre: the head's width, or the catalog's
+    /// widest media if that is wider.
+    fn widest_across_head(&self) -> c_int {
+        self.pool
             .media
             .iter()
             .filter_map(|preset| {
                 self.across_head(preset.width_hundredths_mm(), preset.length_hundredths_mm())
             })
-            .fold(self.head_width_hundredths_mm(), c_int::max);
-        width > 0
-            && self
-                .across_head(width, length)
-                .is_none_or(|across| across <= widest)
+            .fold(self.head_width_hundredths_mm(), c_int::max)
+    }
+
+    /// How far media `width` x `length` hundredths of a millimetre runs
+    /// along the feed: its length, or on a model with sideways media its
+    /// longer side, which a roll's width is. `None` for a roll on other
+    /// models, whose pages are as long as the job makes them.
+    fn along_feed(&self, width: c_int, length: c_int) -> Option<c_int> {
+        if self.has_sideways_media() {
+            Some(width.max(length))
+        } else if media::is_roll(length) {
+            None
+        } else {
+            Some(length)
+        }
+    }
+
+    /// The longest page the driver prints, in hundredths of a millimetre:
+    /// as many rows as one raster can carry ([`MAX_ROWS`]), in whole
+    /// millimetres - 8199 mm at 203 dpi, 5548 mm at 300 dpi. A longer page
+    /// is refused, so this is also the longest custom media.
+    pub fn longest_page_hundredths_mm(&self) -> c_int {
+        let dpi = c_int::from(self.info.dpi.max(1));
+        c_int::from(MAX_ROWS) * 2540 / dpi / 100 * 100
+    }
+
+    /// The custom sizes the model takes: from the catalog's narrowest media
+    /// and shortest label up to the widest media across the head and the
+    /// longest page along the feed. On a model with sideways media a
+    /// label's length runs across the head and its width along the feed.
+    /// Every size in the range is one [`Self::accepts_media`] accepts;
+    /// `None` if the catalog has no labels.
+    pub fn custom_range(&self) -> Option<CustomRange> {
+        let narrowest = self
+            .pool
+            .media
+            .iter()
+            .map(MediaPreset::width_hundredths_mm)
+            .min()?;
+        let shortest = self
+            .pool
+            .media
+            .iter()
+            .map(MediaPreset::length_hundredths_mm)
+            .filter(|&length| !media::is_roll(length))
+            .min()?;
+        let (across, along) = (self.widest_across_head(), self.longest_page_hundredths_mm());
+        let max = if self.has_sideways_media() {
+            MediaSize {
+                width: along,
+                length: across,
+            }
+        } else {
+            MediaSize {
+                width: across,
+                length: along,
+            }
+        };
+        Some(CustomRange {
+            min: MediaSize {
+                width: narrowest,
+                length: shortest,
+            },
+            max,
+        })
+    }
+
+    /// The PWG names of [`Self::custom_range`]'s bounds, for the driver's
+    /// media list.
+    pub fn custom_range_names(&self) -> impl Iterator<Item = &CStr> {
+        self.custom_range_names.iter().map(CString::as_c_str)
     }
 
     /// The media sizes to offer, with their PWG names as C strings.
@@ -246,7 +381,7 @@ impl Model {
 
     /// Every media-tracking mode the model's media come in, as
     /// `pappl_media_tracking_t` bits.
-    pub fn tracking_supported(&self) -> c_uint {
+    pub fn tracking_supported(&self) -> c_ushort {
         self.pool
             .media
             .iter()
@@ -401,6 +536,96 @@ mod tests {
     }
 
     #[test]
+    fn custom_media_runs_no_further_than_a_page() {
+        let m220 = model("M220");
+        assert_eq!(m220.longest_page_hundredths_mm(), 819_900);
+        assert!(m220.accepts_media(4000, 819_900));
+        assert!(!m220.accepts_media(4000, 820_000));
+        assert!(!m220.accepts_media(4000, -1));
+        // Turned, a D30 label's width runs along the feed.
+        let d30 = model("D30");
+        assert!(d30.accepts_media(819_900, 1500));
+        assert!(!d30.accepts_media(820_000, 1500));
+    }
+
+    #[test]
+    fn m220_custom_range() {
+        let m220 = model("M220");
+        let range = m220.custom_range().expect("the catalog has labels");
+        assert_eq!(
+            range.min,
+            MediaSize {
+                width: 2000,
+                length: 1000
+            }
+        );
+        assert_eq!(
+            range.max,
+            MediaSize {
+                width: 7207,
+                length: 819_900
+            }
+        );
+        let names: Vec<_> = m220.custom_range_names().collect();
+        assert_eq!(names, [c"roll_min_20x10mm", c"roll_max_72.07x8199mm"]);
+    }
+
+    #[test]
+    fn sideways_custom_media_is_long_across_the_feed() {
+        let range = model("D30").custom_range().expect("the catalog has labels");
+        assert_eq!(
+            range.min,
+            MediaSize {
+                width: 2500,
+                length: 1200
+            }
+        );
+        assert_eq!(
+            range.max,
+            MediaSize {
+                width: 819_900,
+                length: 1500
+            }
+        );
+    }
+
+    #[test]
+    fn the_custom_range_is_what_the_model_accepts() {
+        for model in Model::all() {
+            let CustomRange { min, max } = model.custom_range().expect("the catalog has labels");
+            for (width, length) in [
+                (min.width, min.length),
+                (min.width, max.length),
+                (max.width, min.length),
+                (max.width, max.length),
+            ] {
+                assert!(
+                    model.accepts_media(width, length),
+                    "{} {width}x{length}",
+                    model.name()
+                );
+            }
+            assert!(
+                !model.accepts_media(max.width + 1, min.length),
+                "{}",
+                model.name()
+            );
+            assert!(
+                !model.accepts_media(min.width, max.length + 1),
+                "{}",
+                model.name()
+            );
+        }
+    }
+
+    #[test]
+    fn millimetres_without_trailing_zeros() {
+        assert_eq!(millimetres(2000), "20");
+        assert_eq!(millimetres(7210), "72.1");
+        assert_eq!(millimetres(7207), "72.07");
+    }
+
+    #[test]
     fn default_media_comes_with_its_name() {
         let (preset, name) = model("M220").default_media();
         assert_eq!(preset.size_name, "om_40x30mm_40x30mm");
@@ -411,7 +636,8 @@ mod tests {
     fn media_fit_in_pappl() {
         for model in Model::all() {
             assert!(
-                model.media().count() <= crate::pappl::PM_MAX_MEDIA,
+                model.media().count() + model.custom_range_names().count()
+                    <= crate::pappl::PM_MAX_MEDIA,
                 "{}",
                 model.name()
             );

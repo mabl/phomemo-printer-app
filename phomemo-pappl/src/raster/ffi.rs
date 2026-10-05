@@ -8,7 +8,7 @@
 //! safe Rust of [`Job`].
 
 use std::cell::OnceCell;
-use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
+use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_ushort, c_void};
 use std::io;
 use std::ptr::{self, NonNull};
 use std::slice;
@@ -60,7 +60,7 @@ pub struct PmOptions {
     /// `print_speed`.
     pub print_speed: c_int,
     /// `media.tracking`.
-    pub media_tracking: c_uint,
+    pub media_tracking: c_ushort,
     /// `media.size_length`.
     pub media_length: c_int,
     /// `print_color_mode`.

@@ -1,10 +1,10 @@
-//! The model-specific capabilities `tp_driver_cb` reports to PAPPL.
+//! The model-specific capabilities `driver_cb` reports to PAPPL.
 //!
 //! `c/driver.c` copies a [`PmDriverDefaults`] into PAPPL's
 //! `pappl_pr_driver_data_t` and adds what is the same for every model; the
 //! callbacks stay in C because they take PAPPL's types.
 
-use std::ffi::{c_char, c_int, c_uint};
+use std::ffi::{c_char, c_int, c_ushort};
 use std::ptr;
 
 use crate::media;
@@ -18,7 +18,7 @@ use crate::raster::{DARKNESS_LEVELS, INCH_PER_SECOND, SPEED_MAX};
 /// the middle density, 8.
 const DARKNESS_CONFIGURED: c_int = 50;
 
-/// What `tp_driver_cb` reports for one model.
+/// What `driver_cb` reports for one model.
 ///
 /// The strings belong to the model table and live as long as the process.
 #[repr(C)]
@@ -41,10 +41,11 @@ pub struct PmDriverDefaults {
     /// `speed_default`: 0 leaves the speed to the printer.
     pub speed_default: c_int,
     /// `tracking_supported`: `pappl_media_tracking_t` bits.
-    pub tracking_supported: c_uint,
+    pub tracking_supported: c_ushort,
     /// Entries used in `media`.
     pub num_media: c_int,
-    /// `media`: PWG names of the media sizes offered.
+    /// `media`: PWG names of the media sizes offered, then the bounds of
+    /// the custom sizes ([`Model::custom_range_names`]).
     pub media: [*const c_char; PM_MAX_MEDIA],
     /// `media_default`.
     pub media_default: PmMediaDefault,
@@ -61,7 +62,7 @@ pub struct PmMediaDefault {
     /// `size_length` in hundredths of a millimetre; 0 for a roll.
     pub length: c_int,
     /// `tracking`, a `pappl_media_tracking_t` bit.
-    pub tracking: c_uint,
+    pub tracking: c_ushort,
     /// `type`, `labels` or `continuous`.
     pub media_type: *const c_char,
 }
@@ -72,7 +73,11 @@ impl PmDriverDefaults {
     pub fn new(model: &Model) -> Self {
         let mut media = [ptr::null(); PM_MAX_MEDIA];
         let mut num_media = 0;
-        for (slot, (_, name)) in media.iter_mut().zip(model.media()) {
+        let names = model
+            .media()
+            .map(|(_, name)| name)
+            .chain(model.custom_range_names());
+        for (slot, name) in media.iter_mut().zip(names) {
             *slot = name.as_ptr();
             num_media += 1;
         }
@@ -176,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn media_list_is_the_catalogs() {
+    fn media_list_is_the_catalogs_and_the_custom_range() {
         for model in Model::all() {
             let defaults = PmDriverDefaults::new(model);
             let count = usize::try_from(defaults.num_media).expect("non-negative");
@@ -187,8 +192,15 @@ mod tests {
             let expected: Vec<_> = model
                 .media()
                 .map(|(preset, _)| preset.size_name.as_str())
+                .chain(
+                    model
+                        .custom_range_names()
+                        .map(|name| name.to_str().expect("UTF-8")),
+                )
                 .collect();
             assert_eq!(names, expected, "{}", model.name());
+            assert!(names[count - 2].starts_with("roll_min_"));
+            assert!(names[count - 1].starts_with("roll_max_"));
             assert!(defaults.media[count..].iter().all(|name| name.is_null()));
             assert!(names.contains(&string(defaults.media_default.size_name)));
         }

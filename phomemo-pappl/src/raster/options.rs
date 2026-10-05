@@ -5,7 +5,7 @@
 //! settings. Values the driver does not understand are logged and replaced
 //! by the default rather than failing the job.
 
-use std::ffi::{c_int, c_uint};
+use std::ffi::{c_int, c_uint, c_ushort};
 use std::fmt;
 use std::str::FromStr;
 
@@ -66,7 +66,7 @@ pub struct PrintOptions {
     /// speed to the printer.
     pub print_speed: c_int,
     /// The media's `media-tracking`, a `pappl_media_tracking_t` bit.
-    pub media_tracking: c_uint,
+    pub media_tracking: c_ushort,
     /// The media's length in hundredths of a millimetre; 0 for a roll.
     pub media_length: c_int,
     /// `print-color-mode`, a `pappl_color_mode_t` bit.

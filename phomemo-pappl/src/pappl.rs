@@ -13,7 +13,7 @@
 //! (`phomemo-pappl/cbindgen.toml`), so the C side passes its pointers without
 //! casts.
 
-use std::ffi::{c_char, c_int, c_uint, c_void};
+use std::ffi::{c_char, c_int, c_uint, c_ushort, c_void};
 use std::marker::{PhantomData, PhantomPinned};
 
 use phomemo_protocol::media::MediaTracking;
@@ -31,11 +31,11 @@ pub const PM_LOGLEVEL_WARN: c_int = 2;
 pub const PM_LOGLEVEL_ERROR: c_int = 3;
 
 /// `PAPPL_MEDIA_TRACKING_CONTINUOUS`.
-pub const PM_MEDIA_TRACKING_CONTINUOUS: c_uint = 0x0001;
+pub const PM_MEDIA_TRACKING_CONTINUOUS: c_ushort = 0x0001;
 /// `PAPPL_MEDIA_TRACKING_GAP`.
-pub const PM_MEDIA_TRACKING_GAP: c_uint = 0x0002;
+pub const PM_MEDIA_TRACKING_GAP: c_ushort = 0x0002;
 /// `PAPPL_MEDIA_TRACKING_MARK`.
-pub const PM_MEDIA_TRACKING_MARK: c_uint = 0x0004;
+pub const PM_MEDIA_TRACKING_MARK: c_ushort = 0x0004;
 
 /// `PAPPL_PREASON_OTHER`.
 pub const PM_PREASON_OTHER: c_uint = 0x0001;
@@ -142,7 +142,7 @@ impl LogLevel {
 /// PAPPL has no card mode; as far as PAPPL is concerned card stock is
 /// gap-tracked.
 #[must_use]
-pub const fn tracking_flag(tracking: MediaTracking) -> c_uint {
+pub const fn tracking_flag(tracking: MediaTracking) -> c_ushort {
     match tracking {
         MediaTracking::Continuous => PM_MEDIA_TRACKING_CONTINUOUS,
         MediaTracking::Gap | MediaTracking::Card => PM_MEDIA_TRACKING_GAP,
@@ -153,7 +153,7 @@ pub const fn tracking_flag(tracking: MediaTracking) -> c_uint {
 /// The tracking mode a single `pappl_media_tracking_t` bit selects, or
 /// `None` for anything else (no bit, several, or `web`).
 #[must_use]
-pub const fn tracking_from_flag(flag: c_uint) -> Option<MediaTracking> {
+pub const fn tracking_from_flag(flag: c_ushort) -> Option<MediaTracking> {
     match flag {
         PM_MEDIA_TRACKING_CONTINUOUS => Some(MediaTracking::Continuous),
         PM_MEDIA_TRACKING_GAP => Some(MediaTracking::Gap),

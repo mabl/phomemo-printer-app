@@ -21,7 +21,7 @@ use super::options::{Compression, RasterHeader};
 use crate::pappl::{LogLevel, PM_CSPACE_K, PM_CSPACE_SW, PM_CSPACE_W};
 
 /// The most rows a raster can have: its header counts them in 16 bits.
-const MAX_ROWS: usize = u16::MAX as usize;
+pub const MAX_ROWS: u16 = u16::MAX;
 
 /// The quarter turn that lays a page wider than the head along the feed.
 ///
@@ -50,7 +50,7 @@ impl Polarity {
     /// works the same way: it pads `K` lines with 0 and other lines with
     /// 255 (`job-process.c`, `_papplJobProcessRaster`), and inverts images
     /// it rasterizes to `K` (`job-filter.c`, `papplJobFilterImage`). Only
-    /// 8-bit rasters reach the driver: `tp_driver_cb` offers no 1-bit type.
+    /// 8-bit rasters reach the driver: `driver_cb` offers no 1-bit type.
     const fn new(bits_per_pixel: c_uint, color_space: c_uint) -> Option<Self> {
         match (bits_per_pixel, color_space) {
             (8, PM_CSPACE_K) => Some(Self::Ink),
@@ -176,7 +176,7 @@ impl Page {
             return Err(Error::BadGeometry(*header));
         }
         let layout = Layout::new(header.width, header.height, head, sideways_media);
-        if layout.along() > MAX_ROWS {
+        if layout.along() > usize::from(MAX_ROWS) {
             return Err(Error::TooManyLines {
                 lines: layout.along(),
             });
@@ -429,30 +429,30 @@ mod tests {
     fn huge_pages_allocate_only_what_reaches_the_head() {
         // A page as wide and as long as a raster allows.
         let page = Page::new(
-            &header(usize::MAX, MAX_ROWS, PM_CSPACE_SW),
+            &header(usize::MAX, usize::from(MAX_ROWS), PM_CSPACE_SW),
             576,
             false,
             &Messages::default(),
         )
         .expect("cropped to the head");
-        assert!(page.data.capacity() <= 576 * MAX_ROWS);
+        assert!(page.data.capacity() <= 576 * usize::from(MAX_ROWS));
 
         // Turned, the page's width becomes the raster's rows.
         let turned = Page::new(
-            &header(MAX_ROWS, 1000, PM_CSPACE_SW),
+            &header(usize::from(MAX_ROWS), 1000, PM_CSPACE_SW),
             96,
             true,
             &Messages::default(),
         )
         .expect("cropped to the head");
-        assert!(turned.data.capacity() <= 96 * MAX_ROWS);
+        assert!(turned.data.capacity() <= 96 * usize::from(MAX_ROWS));
     }
 
     #[test]
     fn pages_longer_than_a_raster_are_refused() {
         assert!(matches!(
             Page::new(
-                &header(8, MAX_ROWS + 1, PM_CSPACE_SW),
+                &header(8, usize::from(MAX_ROWS) + 1, PM_CSPACE_SW),
                 576,
                 false,
                 &Messages::default()
@@ -461,7 +461,7 @@ mod tests {
         ));
         assert!(matches!(
             Page::new(
-                &header(MAX_ROWS + 1, 100, PM_CSPACE_SW),
+                &header(usize::from(MAX_ROWS) + 1, 100, PM_CSPACE_SW),
                 96,
                 true,
                 &Messages::default()

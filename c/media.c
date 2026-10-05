@@ -1,61 +1,164 @@
 //
-// Custom media management page and persistence for Phomemo printers.
+// Phomemo Printer Application — media setup web page.
 //
-// Single-roll model: one media source ("main-roll"), with custom size
-// selection and persistence via papplPrinterOpenFile.
+// Each printer has one media source, "main-roll". Its "Media Setup" page
+// selects the size loaded, one of the model's or a custom one, and how the
+// printer tracks it. The page sets PAPPL's ready media, which PAPPL saves in
+// its state file (media-col-ready), so the choice survives a restart.
 //
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <pappl/pappl.h>
-#include "phomemo_pappl.h"
+#include "phomemo.h"
 
-static void media_format_mm(int hundredths_mm, char *buffer, size_t bufsize) {
-    if (!buffer || bufsize == 0)
-        return;
+// The media-size value of the custom size fields.
+#define MEDIA_SIZE_CUSTOM "custom"
 
-    if (hundredths_mm % 100 == 0)
-        snprintf(buffer, bufsize, "%d", hundredths_mm / 100);
-    else
-        snprintf(buffer, bufsize, "%.2f", hundredths_mm / 100.0);
+// The custom sizes the driver takes, in hundredths of a millimetre: the
+// bounds its media list names (media_is_range_bound). PAPPL accepts ready
+// media within the range of the whole list (validate_ready in PAPPL's
+// printer-driver.c), which includes these bounds and, if the list has a
+// roll, a length of 0.
+typedef struct {
+    int  min_width, max_width;
+    int  min_length, max_length;
+    bool continuous;              // whether a custom roll, 0 long, fits
+} media_range_t;
+
+// A unit custom sizes are entered in.
+typedef struct {
+    const char *name;             // as in PWG media names
+    int         hundredths;       // hundredths of a millimetre per unit
+    int         decimals;         // decimal places shown
+} media_unit_t;
+
+static const media_unit_t media_units[] = {
+    { "mm", 100,  2 },
+    { "in", 2540, 3 },
+};
+
+#define MEDIA_NUM_UNITS (sizeof(media_units) / sizeof(media_units[0]))
+
+// How media_format_in_unit rounds.
+typedef enum {
+    MEDIA_ROUND_DOWN,
+    MEDIA_ROUND_NEAREST,
+    MEDIA_ROUND_UP,
+} media_rounding_t;
+
+// The tracking modes the page offers, where the printer supports them.
+static const struct {
+    const char            *keyword;
+    const char            *label;
+    pappl_media_tracking_t tracking;
+} media_trackings[] = {
+    { "continuous", "Continuous",  PAPPL_MEDIA_TRACKING_CONTINUOUS },
+    { "gap",        "Gap/Die-cut", PAPPL_MEDIA_TRACKING_GAP },
+    { "mark",       "Black Mark",  PAPPL_MEDIA_TRACKING_MARK },
+};
+
+#define MEDIA_NUM_TRACKINGS (sizeof(media_trackings) / sizeof(media_trackings[0]))
+
+// ---------------------------------------------------------------------------
+// Media sizes
+// ---------------------------------------------------------------------------
+
+// Whether `size_name` is a bound of a driver's custom size range rather than
+// a size, as PAPPL tells them apart (make_attrs in printer-driver.c).
+static bool media_is_range_bound(const char *size_name) {
+    return !strncmp(size_name, "roll_min_", 9) || !strncmp(size_name, "roll_max_", 9) ||
+           !strncmp(size_name, "custom_min_", 11) || !strncmp(size_name, "custom_max_", 11);
 }
 
-static bool media_parse_decimal(const char *value, double *out) {
-    if (!value || !*value || !out)
-        return false;
-
-    char *end = NULL;
-    errno = 0;
-    double parsed = strtod(value, &end);
-    if (errno != 0 || !end || *end)
-        return false;
-
-    *out = parsed;
-    return true;
+// Whether the driver lists size `size_name`.
+static bool media_is_listed(const pappl_pr_driver_data_t *data, const char *size_name) {
+    for (int i = 0; i < data->num_media; i++) {
+        if (!media_is_range_bound(data->media[i]) && !strcmp(data->media[i], size_name))
+            return true;
+    }
+    return false;
 }
 
-static bool media_tracking_is_supported(unsigned tracking_supported, int tracking) {
-    return (tracking == PAPPL_MEDIA_TRACKING_CONTINUOUS &&
-            (tracking_supported & PAPPL_MEDIA_TRACKING_CONTINUOUS)) ||
-           (tracking == PAPPL_MEDIA_TRACKING_GAP &&
-            (tracking_supported & PAPPL_MEDIA_TRACKING_GAP)) ||
-           (tracking == PAPPL_MEDIA_TRACKING_MARK &&
-            (tracking_supported & PAPPL_MEDIA_TRACKING_MARK));
-}
+// Find the driver's custom size range; false if it names none.
+static bool media_custom_range(const pappl_pr_driver_data_t *data, media_range_t *range) {
+    bool have_min = false, have_max = false;
 
-static void media_format_option_label(const char *size_name, char *buffer, size_t bufsize) {
-    if (!buffer || bufsize == 0)
-        return;
+    range->continuous = false;
+    for (int i = 0; i < data->num_media; i++) {
+        const char *size_name = data->media[i];
+        // For a name it does not know, pwgMediaForPWG fills in and returns
+        // one buffer, which the next call overwrites.
+        const pwg_media_t *pwg = pwgMediaForPWG(size_name);
 
-    if (!size_name || !*size_name) {
-        buffer[0] = '\0';
-        return;
+        if (!pwg) {
+            continue;
+        } else if (!media_is_range_bound(size_name)) {
+            range->continuous = range->continuous || pwg->length == 0;
+        } else if (strstr(size_name, "_min_")) {
+            range->min_width  = pwg->width;
+            range->min_length = pwg->length;
+            have_min = true;
+        } else {
+            range->max_width  = pwg->width;
+            range->max_length = pwg->length;
+            have_max = true;
+        }
     }
 
-    pwg_media_t *pwg = pwgMediaForPWG(size_name);
+    return have_min && have_max;
+}
+
+// The unit a PWG media name gives its size in.
+static const media_unit_t *media_name_unit(const char *size_name) {
+    size_t length = strlen(size_name);
+    for (size_t i = 0; i < MEDIA_NUM_UNITS; i++) {
+        if (length > 2 && !strcmp(size_name + length - 2, media_units[i].name))
+            return &media_units[i];
+    }
+    return &media_units[0];
+}
+
+static const media_unit_t *media_find_unit(const char *name) {
+    for (size_t i = 0; name && i < MEDIA_NUM_UNITS; i++) {
+        if (!strcmp(name, media_units[i].name))
+            return &media_units[i];
+    }
+    return NULL;
+}
+
+// Format `hundredths` of a millimetre in `unit`, rounded as `rounding` says
+// to the unit's decimal places, without trailing zeros.
+static void media_format_in_unit(int hundredths, const media_unit_t *unit,
+                                 media_rounding_t rounding, char *buffer, size_t bufsize) {
+    long long scale = 1;
+    for (int i = 0; i < unit->decimals; i++)
+        scale *= 10;
+
+    long long numerator = (long long)hundredths * scale;
+    long long divisor = unit->hundredths;
+    if (rounding == MEDIA_ROUND_NEAREST)
+        numerator += divisor / 2;
+    else if (rounding == MEDIA_ROUND_UP)
+        numerator += divisor - 1;
+    long long scaled = numerator / divisor;  // hundredths >= 0
+
+    int length = snprintf(buffer, bufsize, "%lld.%0*lld",
+                          scaled / scale, unit->decimals, scaled % scale);
+    if (length < 0 || (size_t)length >= bufsize)
+        return;
+    while (buffer[length - 1] == '0')
+        buffer[--length] = '\0';
+    if (buffer[length - 1] == '.')
+        buffer[length - 1] = '\0';
+}
+
+static void media_format_mm(int hundredths, char *buffer, size_t bufsize) {
+    media_format_in_unit(hundredths, &media_units[0], MEDIA_ROUND_NEAREST, buffer, bufsize);
+}
+
+// Describe media `size_name`, e.g. "40 x 30 mm label".
+static void media_format_label(const char *size_name, char *buffer, size_t bufsize) {
+    const pwg_media_t *pwg = pwgMediaForPWG(size_name);
     if (!pwg) {
         papplCopyString(buffer, size_name, bufsize);
         return;
@@ -65,389 +168,366 @@ static void media_format_option_label(const char *size_name, char *buffer, size_
     media_format_mm(pwg->width, width, sizeof(width));
     media_format_mm(pwg->length, length, sizeof(length));
 
-    if (pwg->length == 0) {
+    if (pwg->length == 0)
         snprintf(buffer, bufsize, "%s mm continuous roll", width);
-    } else {
-        snprintf(buffer, bufsize, "%s x %s mm label", width, length);
-    }
-}
-
-static bool media_get_web_resource(
-    pappl_printer_t *printer,
-    const char *subpath,
-    char *buffer,
-    size_t bufsize) {
-    char ipp_path[256];
-    if (!papplPrinterGetPath(printer, "", ipp_path, sizeof(ipp_path)))
-        return false;
-
-    const char *slug = strrchr(ipp_path, '/');
-    if (!slug || !slug[1])
-        return false;
-    slug ++;
-
-    if (subpath && *subpath)
-        snprintf(buffer, bufsize, "/%s/%s", slug, subpath);
     else
-        snprintf(buffer, bufsize, "/%s", slug);
+        snprintf(buffer, bufsize, "%s x %s mm label", width, length);
+}
+
+// ---------------------------------------------------------------------------
+// Form handling
+// ---------------------------------------------------------------------------
+
+// Parse a plain decimal number, as a number field submits it, into
+// millionths: digits with an optional fraction after a '.', whatever the
+// locale, and no sign, spaces or exponent. Up to 7 digits before the point
+// and 6 after it, so that converting the result cannot overflow.
+static bool media_parse_decimal(const char *value, long long *millionths) {
+    long long whole = 0, fraction = 0, place = 1000000;
+    int digits = 0;
+    const char *p = value;
+
+    for (; *p >= '0' && *p <= '9'; p++, digits++) {
+        if (digits == 7)
+            return false;
+        whole = whole * 10 + (*p - '0');
+    }
+
+    if (*p == '.') {
+        for (p++; *p >= '0' && *p <= '9'; p++, digits++) {
+            if (place == 1)
+                return false;
+            place /= 10;
+            fraction += (*p - '0') * place;
+        }
+    }
+
+    if (*p || digits == 0)
+        return false;
+
+    *millionths = whole * 1000000 + fraction;
     return true;
 }
 
-static void media_normalize_ready_state(pappl_printer_t *printer) {
-    pappl_pr_driver_data_t data;
-    papplPrinterGetDriverData(printer, &data);
-
-    unsigned ready_tracking = pm_media_tracking(
-        data.extension, data.media_ready[0].size_name, data.media_ready[0].size_length);
-    unsigned default_tracking = pm_media_tracking(
-        data.extension, data.media_default.size_name, data.media_default.size_length);
-
-    bool changed = false;
-    if (data.media_ready[0].tracking != (int)ready_tracking) {
-        data.media_ready[0].tracking = (int)ready_tracking;
-        changed = true;
-    }
-    if (data.media_ready[0].size_length == 0) {
-        if (strcmp(data.media_ready[0].type, "continuous")) {
-            papplCopyString(data.media_ready[0].type, "continuous", sizeof(data.media_ready[0].type));
-            changed = true;
-        }
-    } else if (strcmp(data.media_ready[0].type, "labels")) {
-        papplCopyString(data.media_ready[0].type, "labels", sizeof(data.media_ready[0].type));
-        changed = true;
-    }
-
-    if (data.media_default.tracking != (int)default_tracking) {
-        data.media_default.tracking = (int)default_tracking;
-        changed = true;
-    }
-    if (data.media_default.size_length == 0) {
-        if (strcmp(data.media_default.type, "continuous")) {
-            papplCopyString(data.media_default.type, "continuous", sizeof(data.media_default.type));
-            changed = true;
-        }
-    } else if (strcmp(data.media_default.type, "labels")) {
-        papplCopyString(data.media_default.type, "labels", sizeof(data.media_default.type));
-        changed = true;
-    }
-
-    if (!changed)
-        return;
-
-    papplPrinterSetDriverData(printer, &data, NULL);
-    papplPrinterSetReadyMedia(printer, 1, data.media_ready);
-}
-
-// ---------------------------------------------------------------------------
-// Custom media file I/O
-// ---------------------------------------------------------------------------
-
-// Load the persisted custom media name for the printer.
-// Returns true if a saved value was loaded into buffer.
-static bool media_load(pappl_printer_t *printer, char *buffer, size_t bufsize) {
-    char fname[1024];
-    int fd = papplPrinterOpenFile(printer, fname, sizeof(fname), NULL,
-                                  "custom-media", "txt", "r");
-    if (fd < 0)
+// Convert a custom dimension in `unit` to hundredths of a millimetre,
+// rounded to the nearest; false unless it is a number from `min` to `max`.
+static bool media_parse_dimension(const char *value, const media_unit_t *unit,
+                                  int min, int max, int *hundredths) {
+    long long millionths;
+    if (!value || !media_parse_decimal(value, &millionths))
         return false;
 
-    FILE *fp = fdopen(fd, "r");
-    if (!fp) {
-        close(fd);
-        return false;
-    }
-
-    bool ok = (fgets(buffer, (int)bufsize, fp) != NULL);
-    fclose(fp);
-
-    // Strip trailing newline/whitespace
-    if (ok) {
-        size_t len = strlen(buffer);
-        while (len > 0 && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r'
-                           || buffer[len - 1] == ' '))
-            buffer[--len] = '\0';
-        if (!*buffer) ok = false;
-    }
-
-    return ok;
-}
-
-// Save the current custom media name for the printer.
-static bool media_save(pappl_printer_t *printer, const char *size_name) {
-    char fname[1024];
-
-    if (!size_name || !*size_name) {
-        // Delete any existing file
-        papplPrinterOpenFile(printer, fname, sizeof(fname), NULL,
-                             "custom-media", "txt", "x");
-        return true;
-    }
-
-    int fd = papplPrinterOpenFile(printer, fname, sizeof(fname), NULL,
-                                  "custom-media", "txt", "w");
-    if (fd < 0)
+    long long result = (millionths * unit->hundredths + 500000) / 1000000;
+    if (result < min || result > max)
         return false;
 
-    FILE *fp = fdopen(fd, "w");
-    if (!fp) {
-        close(fd);
-        return false;
-    }
-
-    fprintf(fp, "%s\n", size_name);
-    fclose(fp);
+    *hundredths = (int)result;
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Apply loaded media to driver data + ready media
-// ---------------------------------------------------------------------------
+// Load media `size_name` into `ready`, with the tracking that suits it, if
+// it is a different size; NULL, or what is wrong with it.
+static const char *media_load_size(const pappl_pr_driver_data_t *data,
+                                   const char *size_name, pappl_media_col_t *ready) {
+    if (!strcmp(size_name, ready->size_name))
+        return NULL;
 
-static void media_apply(pappl_printer_t *printer, const char *size_name) {
-    pappl_pr_driver_data_t data;
-    papplPrinterGetDriverData(printer, &data);
-
-    pwg_media_t *pwg = pwgMediaForPWG(size_name);
+    const pwg_media_t *pwg = pwgMediaForPWG(size_name);
     if (!pwg)
-        return;
+        return "Unknown media size.";
 
-    papplCopyString(data.media_ready[0].size_name, size_name,
-                    sizeof(data.media_ready[0].size_name));
-    data.media_ready[0].size_width  = pwg->width;
-    data.media_ready[0].size_length = pwg->length;
-    papplCopyString(
-        data.media_ready[0].type,
-        (pwg->length == 0) ? "continuous" : "labels",
-        sizeof(data.media_ready[0].type));
+    papplCopyString(ready->size_name, size_name, sizeof(ready->size_name));
+    ready->size_width  = pwg->width;
+    ready->size_length = pwg->length;
+    papplCopyString(ready->type, pm_media_type(pwg->length), sizeof(ready->type));
+    ready->tracking    = pm_media_tracking(data->extension, size_name, pwg->length);
+    return NULL;
+}
 
-    // Preferred tracking from the Rust media catalog, or by length.
-    data.media_ready[0].tracking = pm_media_tracking(data.extension, size_name, pwg->length);
+// Load the custom size the form describes into `ready`; NULL, or what is
+// wrong with the size.
+static const char *media_load_custom_size(const pappl_pr_driver_data_t *data,
+                                          int num_form, cups_option_t *form,
+                                          pappl_media_col_t *ready) {
+    static const char invalid[] = "Enter a custom width and length within the ranges shown.";
 
-    papplPrinterSetDriverData(printer, &data, NULL);
-    papplPrinterSetReadyMedia(printer, 1, data.media_ready);
+    media_range_t range;
+    if (!media_custom_range(data, &range))
+        return "This printer takes no custom sizes.";
+
+    const media_unit_t *unit = media_find_unit(cupsGetOption("custom-units", num_form, form));
+    int width, length;
+    if (!unit ||
+        !media_parse_dimension(cupsGetOption("custom-width", num_form, form), unit,
+                               range.min_width, range.max_width, &width) ||
+        !media_parse_dimension(cupsGetOption("custom-length", num_form, form), unit,
+                               0, range.max_length, &length) ||
+        (length == 0 ? !range.continuous : length < range.min_length))
+        return invalid;
+
+    // The size loaded, perhaps in the other unit: keep its name and tracking.
+    if (width == ready->size_width && length == ready->size_length)
+        return NULL;
+
+    if (!pm_media_fits(data->extension, width, length))
+        return "The custom size is too wide for this printer.";
+
+    char size_name[sizeof(ready->size_name)];
+    if (!pwgFormatSizeName(size_name, sizeof(size_name), "custom", NULL, width, length,
+                           unit->name))
+        return "Invalid custom size.";
+
+    return media_load_size(data, size_name, ready);
+}
+
+// Load the size the form selects into `ready`; NULL, or what is wrong with
+// the selection.
+static const char *media_select_size(const pappl_pr_driver_data_t *data,
+                                     const char *size_name,
+                                     int num_form, cups_option_t *form,
+                                     pappl_media_col_t *ready) {
+    if (!strcmp(size_name, MEDIA_SIZE_CUSTOM))
+        return media_load_custom_size(data, num_form, form, ready);
+    if (!media_is_listed(data, size_name))
+        return "Unknown media size.";
+    return media_load_size(data, size_name, ready);
+}
+
+// Apply the tracking the form selects to `ready`, if the user changed it;
+// NULL, or what is wrong with the selection. The form shows the tracking in
+// effect, so an unchanged one leaves the tracking that suits a new size.
+static const char *media_select_tracking(const pappl_pr_driver_data_t *data,
+                                         const char *keyword,
+                                         pappl_media_col_t *ready) {
+    for (size_t i = 0; i < MEDIA_NUM_TRACKINGS; i++) {
+        pappl_media_tracking_t tracking = media_trackings[i].tracking;
+        if (strcmp(keyword, media_trackings[i].keyword))
+            continue;
+
+        if (tracking == data->media_ready[0].tracking)
+            return NULL;
+        if (!(data->tracking_supported & tracking))
+            return "Selected tracking mode is unsupported for this printer.";
+
+        ready->tracking = tracking;
+        return NULL;
+    }
+
+    return "Unknown tracking mode.";
+}
+
+// Set the ready media to what the form selects; returns the status to show.
+static const char *media_update(pappl_printer_t *printer, int num_form, cups_option_t *form) {
+    pappl_pr_driver_data_t data;
+    papplPrinterGetDriverData(printer, &data);
+
+    pappl_media_col_t ready = data.media_ready[0];
+    const char *size_name = cupsGetOption("media-size", num_form, form);
+    const char *tracking = cupsGetOption("media-tracking", num_form, form);
+    const char *error = NULL;
+
+    if (size_name)
+        error = media_select_size(&data, size_name, num_form, form, &ready);
+    if (!error && tracking)
+        error = media_select_tracking(&data, tracking, &ready);
+    if (error)
+        return error;
+
+    // Also saves the state and makes the media the default (printer-driver.c).
+    if (!papplPrinterSetReadyMedia(printer, 1, &ready))
+        return "The printer does not take this media.";
+
+    return "Changes saved.";
+}
+
+// Handle a form submission; returns the status to show.
+static const char *media_post(pappl_client_t *client, pappl_printer_t *printer) {
+    cups_option_t *form = NULL;
+    int num_form = papplClientGetForm(client, &form);
+    const char *status;
+
+    if (num_form == 0)
+        status = "Invalid form data.";
+    else if (!papplClientIsValidForm(client, num_form, form))
+        status = "Invalid form submission.";
+    else
+        status = media_update(printer, num_form, form);
+
+    cupsFreeOptions(num_form, form);
+    return status;
 }
 
 // ---------------------------------------------------------------------------
-// Web page handler
+// Page
 // ---------------------------------------------------------------------------
 
-static bool media_page_cb(pappl_client_t *client, void *data) {
-    pappl_printer_t *printer = (pappl_printer_t *)data;
-    if (!printer)
-        return false;
+// The custom size fields, preset to the size loaded in the unit its name
+// uses. The inputs' bounds take a size in either unit, as on PAPPL's own
+// media page: each is rounded outwards, from the bound in inches for the
+// minimum and in millimetres for the maximum. media_load_custom_size checks
+// the size itself.
+static void media_show_custom_size(pappl_client_t *client,
+                                   const pappl_pr_driver_data_t *data,
+                                   const media_range_t *range, bool shown) {
+    const pappl_media_col_t *ready = &data->media_ready[0];
+    const media_unit_t *unit = media_name_unit(ready->size_name);
+    const media_unit_t *mm = &media_units[0], *in = &media_units[1];
+    int min_length = range->continuous ? 0 : range->min_length;
+    char width[32], length[32];
+    char input_min_width[32], input_max_width[32], input_min_length[32], input_max_length[32];
+    char min_width[32], max_width[32], shortest[32], max_length[32];
 
-    if (!papplClientHTMLAuthorize(client))
-        return true;
+    media_format_in_unit(ready->size_width, unit, MEDIA_ROUND_NEAREST, width, sizeof(width));
+    media_format_in_unit(ready->size_length, unit, MEDIA_ROUND_NEAREST, length, sizeof(length));
+    media_format_in_unit(range->min_width, in, MEDIA_ROUND_DOWN,
+                         input_min_width, sizeof(input_min_width));
+    media_format_in_unit(range->max_width, mm, MEDIA_ROUND_UP,
+                         input_max_width, sizeof(input_max_width));
+    media_format_in_unit(min_length, in, MEDIA_ROUND_DOWN,
+                         input_min_length, sizeof(input_min_length));
+    media_format_in_unit(range->max_length, mm, MEDIA_ROUND_UP,
+                         input_max_length, sizeof(input_max_length));
+    media_format_mm(range->min_width, min_width, sizeof(min_width));
+    media_format_mm(range->max_width, max_width, sizeof(max_width));
+    media_format_mm(range->min_length, shortest, sizeof(shortest));
+    media_format_mm(range->max_length, max_length, sizeof(max_length));
 
-    pappl_pr_driver_data_t ddata;
-    papplPrinterGetDriverData(printer, &ddata);
+    papplClientHTMLPrintf(client,
+        "              <tr id=\"custom-fields\" style=\"display:%s;\">"
+        "<th>Custom Size:</th><td>"
+        "<input type=\"number\" name=\"custom-width\" min=\"%s\" max=\"%s\" "
+        "step=\"any\" value=\"%s\" placeholder=\"Width\"> x "
+        "<input type=\"number\" name=\"custom-length\" min=\"%s\" max=\"%s\" "
+        "step=\"any\" value=\"%s\" placeholder=\"Length\"> "
+        "<select name=\"custom-units\">",
+        shown ? "table-row" : "none",
+        input_min_width, input_max_width, width,
+        input_min_length, input_max_length, length);
 
-    const char *status = NULL;
+    for (size_t i = 0; i < MEDIA_NUM_UNITS; i++)
+        papplClientHTMLPrintf(client, "<option value=\"%s\"%s>%s</option>",
+                              media_units[i].name, &media_units[i] == unit ? " selected" : "",
+                              media_units[i].name);
 
-    // Handle POST — form submission
-    if (papplClientGetMethod(client) == HTTP_STATE_POST) {
-        int num_form = 0;
-        cups_option_t *form = NULL;
+    papplClientHTMLPrintf(client,
+        "</select><div class=\"form-help\">Width %s to %s mm, length %s to %s mm%s.</div>"
+        "</td></tr>\n",
+        min_width, max_width, shortest, max_length,
+        range->continuous ? ", or 0 for a continuous roll" : "");
+}
 
-        num_form = papplClientGetForm(client, &form);
-        if (num_form == 0) {
-            status = "Invalid form data.";
-        } else if (!papplClientIsValidForm(client, num_form, form)) {
-            status = "Invalid form submission.";
-        } else {
-            const char *sel = cupsGetOption("media-size", num_form, form);
-            if (sel && *sel) {
-                if (!strcmp(sel, "custom")) {
-                    // Custom size entered manually
-                    const char *w_str = cupsGetOption("custom-width", num_form, form);
-                    const char *l_str = cupsGetOption("custom-length", num_form, form);
-                    const char *units = cupsGetOption("custom-units", num_form, form);
+static void media_show_tracking(pappl_client_t *client, const pappl_pr_driver_data_t *data) {
+    papplClientHTMLPuts(client,
+        "              <tr><th>Tracking:</th><td><select name=\"media-tracking\">\n");
 
-                    if (w_str && l_str && units) {
-                        double width_value = 0.0;
-                        double length_value = 0.0;
-                        int width = 0;
-                        int length = 0;
+    for (size_t i = 0; i < MEDIA_NUM_TRACKINGS; i++) {
+        pappl_media_tracking_t tracking = media_trackings[i].tracking;
+        if (!(data->tracking_supported & tracking))
+            continue;
 
-                        if (!media_parse_decimal(w_str, &width_value) ||
-                            !media_parse_decimal(l_str, &length_value) ||
-                            width_value <= 0.0 || length_value < 0.0 ||
-                            length_value > 2000.0) {
-                            status = "Invalid dimensions.";
-                            goto media_post_tracking;
-                        }
-
-                        if (!strcmp(units, "in")) {
-                            width  = (int)(2540.0 * width_value + 0.5);
-                            length = (int)(2540.0 * length_value + 0.5);
-                        } else {
-                            width  = (int)(100.0 * width_value + 0.5);
-                            length = (int)(100.0 * length_value + 0.5);
-                        }
-
-                        if (!pm_media_fits(ddata.extension, width, length)) {
-                            status = "Custom width exceeds printer capacity.";
-                            goto media_post_tracking;
-                        }
-
-                        char name[128];
-                        pwgFormatSizeName(name, sizeof(name), "custom",
-                                          NULL, width, length, units);
-                        media_apply(printer, name);
-                        media_save(printer, name);
-                        status = "Custom media saved.";
-                    }
-                } else {
-                    // Standard size selected from dropdown
-                    media_apply(printer, sel);
-                    media_save(printer, sel);
-                    status = "Media saved.";
-                }
-            }
-
-            // Tracking
-media_post_tracking:
-            const char *track = cupsGetOption("media-tracking", num_form, form);
-            if (track) {
-                papplPrinterGetDriverData(printer, &ddata);
-                int selected_tracking = 0;
-                if (!strcmp(track, "continuous"))
-                    selected_tracking = PAPPL_MEDIA_TRACKING_CONTINUOUS;
-                else if (!strcmp(track, "gap"))
-                    selected_tracking = PAPPL_MEDIA_TRACKING_GAP;
-                else if (!strcmp(track, "mark"))
-                    selected_tracking = PAPPL_MEDIA_TRACKING_MARK;
-
-                if (selected_tracking &&
-                    media_tracking_is_supported((unsigned)ddata.tracking_supported,
-                                               selected_tracking)) {
-                    ddata.media_ready[0].tracking = selected_tracking;
-                    papplPrinterSetDriverData(printer, &ddata, NULL);
-                    papplPrinterSetReadyMedia(printer, 1, ddata.media_ready);
-                } else if (selected_tracking) {
-                    status = "Selected tracking mode is unsupported for this printer.";
-                }
-            }
-        }
-
-        cupsFreeOptions(num_form, form);
+        papplClientHTMLPrintf(client,
+            "                <option value=\"%s\"%s>%s</option>\n",
+            media_trackings[i].keyword,
+            tracking == data->media_ready[0].tracking ? " selected" : "",
+            media_trackings[i].label);
     }
 
-    // Re-read after potential changes
-    papplPrinterGetDriverData(printer, &ddata);
+    papplClientHTMLPuts(client, "              </select></td></tr>\n");
+}
 
-    // Render page
+static void media_show(pappl_client_t *client, pappl_printer_t *printer, const char *status) {
+    pappl_pr_driver_data_t data;
+    papplPrinterGetDriverData(printer, &data);
+
+    const pappl_media_col_t *ready = &data.media_ready[0];
+    media_range_t range;
+    bool takes_custom = media_custom_range(&data, &range);
+    bool custom = !media_is_listed(&data, ready->size_name);
+    char label[128];
+
     papplClientHTMLPrinterHeader(client, printer, "Media Setup", 0, NULL, NULL);
-
     if (status)
         papplClientHTMLPrintf(client, "<div class=\"banner\">%s</div>\n", status);
 
     papplClientHTMLStartForm(client, papplClientGetURI(client), false);
-
     papplClientHTMLPuts(client,
         "          <table class=\"form\">\n"
         "            <tbody>\n"
-        "              <tr><th>Loaded Media:</th><td><select name=\"media-size\" "
-        "onChange=\"document.getElementById('custom-fields').style.display="
-        "this.value=='custom'?'block':'none';\">\n"
-        "                <option value=\"custom\">New Custom Size</option>\n");
+        "              <tr><th>Loaded Media:</th><td><select name=\"media-size\"");
+    if (takes_custom)
+        papplClientHTMLPrintf(client,
+            " onChange=\"document.getElementById('custom-fields').style.display="
+            "this.value=='%s'?'table-row':'none';\">\n"
+            "                <option value=\"%s\"%s>New Custom Size</option>\n",
+            MEDIA_SIZE_CUSTOM, MEDIA_SIZE_CUSTOM, custom ? " selected" : "");
+    else
+        papplClientHTMLPuts(client, ">\n");
 
-    // List known media sizes
-    for (int i = 0; i < ddata.num_media && ddata.media[i]; i++) {
-        const char *sel = "";
-        char label[128];
-        if (!strcmp(ddata.media[i], ddata.media_ready[0].size_name))
-            sel = " selected";
-        media_format_option_label(ddata.media[i], label, sizeof(label));
+    for (int i = 0; i < data.num_media; i++) {
+        if (media_is_range_bound(data.media[i]))
+            continue;
+
+        media_format_label(data.media[i], label, sizeof(label));
         papplClientHTMLPrintf(client,
             "                <option value=\"%s\"%s>%s</option>\n",
-            ddata.media[i], sel, label);
+            data.media[i], strcmp(data.media[i], ready->size_name) ? "" : " selected", label);
     }
 
     papplClientHTMLPuts(client,
         "              </select><div class=\"form-help\">"
-        "Entries shown as \"<width> mm continuous roll\" are endless stock "
+        "Entries shown as \"&lt;width&gt; mm continuous roll\" are endless stock "
         "(length is driven by the print job).</div></td></tr>\n");
 
-    // Custom size fields
-    bool show_custom = (!ddata.media_ready[0].size_name[0]);
+    if (takes_custom)
+        media_show_custom_size(client, &data, &range, custom);
+    media_show_tracking(client, &data);
+
+    media_format_label(ready->size_name, label, sizeof(label));
     papplClientHTMLPrintf(client,
-        "              <tr id=\"custom-fields\" style=\"display:%s;\">"
-        "<th>Custom Size:</th><td>"
-        "<input type=\"number\" name=\"custom-width\" min=\"10\" max=\"120\" "
-        "step=\"0.1\" placeholder=\"Width\"> x "
-        "<input type=\"number\" name=\"custom-length\" min=\"0\" max=\"2000\" "
-        "step=\"0.1\" placeholder=\"Length (0=continuous)\"> "
-        "<select name=\"custom-units\">"
-        "<option value=\"mm\" selected>mm</option>"
-        "<option value=\"in\">in</option>"
-        "</select></td></tr>\n",
-        show_custom ? "table-row" : "none");
-
-    // Tracking
-    papplClientHTMLPuts(client,
-        "              <tr><th>Tracking:</th><td><select name=\"media-tracking\">\n");
-
-    static const struct { const char *value; const char *label; int tracking; } trackings[] = {
-        { "continuous", "Continuous", PAPPL_MEDIA_TRACKING_CONTINUOUS },
-        { "gap",        "Gap/Die-cut", PAPPL_MEDIA_TRACKING_GAP },
-        { "mark",       "Black Mark", PAPPL_MEDIA_TRACKING_MARK },
-    };
-    for (int i = 0; i < 3; i++) {
-        const char *sel = (ddata.media_ready[0].tracking == trackings[i].tracking) ? " selected" : "";
-        papplClientHTMLPrintf(client,
-            "                <option value=\"%s\"%s>%s</option>\n",
-            trackings[i].value, sel, trackings[i].label);
-    }
-
-    char current_label[128];
-    media_format_option_label(ddata.media_ready[0].size_name, current_label, sizeof(current_label));
-
-    papplClientHTMLPrintf(client,
-        "              </select></td></tr>\n"
-        "              <tr><th>Current:</th><td>%s (%dx%d hundredths-mm)</td></tr>\n"
+        "              <tr><th>Current:</th><td>%s</td></tr>\n"
         "              <tr><th></th><td><input type=\"submit\" value=\"Save Changes\">"
         "</td></tr>\n"
         "            </tbody>\n"
         "          </table>\n"
         "        </form>\n",
-        current_label[0] ? current_label : ddata.media_ready[0].size_name,
-        ddata.media_ready[0].size_width,
-        ddata.media_ready[0].size_length);
+        label);
 
     papplClientHTMLPrinterFooter(client);
+}
+
+// The page's resource callback (pappl_resource_cb_t); `data` is the printer.
+static bool media_page_cb(pappl_client_t *client, void *data) {
+    pappl_printer_t *printer = data;
+    const char *status = NULL;
+
+    // On failure, papplClientHTMLAuthorize has responded already.
+    if (!papplClientHTMLAuthorize(client))
+        return true;
+
+    if (papplClientGetMethod(client) == HTTP_STATE_POST)
+        status = media_post(client, printer);
+
+    media_show(client, printer, status);
     return true;
 }
 
 // ---------------------------------------------------------------------------
-// Printer create callback — register media page + load persisted media
+// Printer creation
 // ---------------------------------------------------------------------------
 
-void media_printer_created(pappl_printer_t *printer, void *data) {
+// PAPPL calls this once for each printer it creates, including those it
+// loads from its state file (papplPrinterCreate in printer.c), and removes
+// the page along with the printer's other resources when it is deleted.
+void phomemo_media_create_cb(pappl_printer_t *printer, void *data) {
     (void)data;
 
-    // Register the custom media setup page for this printer.
-    char resource[256];
-    if (media_get_web_resource(printer, "media-setup", resource, sizeof(resource))) {
-        papplSystemAddResourceCallback(
-            papplPrinterGetSystem(printer),
-            resource,
-            "text/html",
-            (pappl_resource_cb_t)media_page_cb,
-            printer);
-        papplPrinterRemoveLink(printer, "Media Setup");
-        papplPrinterAddLink(
-            printer,
-            "Media Setup",
-            resource,
-            PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_CONFIGURATION);
-    }
+    char path[1024];
+    if (!papplPrinterGetPath(printer, "media-setup", path, sizeof(path)))
+        return;
 
-    // Load persisted custom media
-    char saved_name[128];
-    if (media_load(printer, saved_name, sizeof(saved_name)))
-        media_apply(printer, saved_name);
-
-    // Keep persisted state coherent for 0mm (continuous roll) media.
-    media_normalize_ready_state(printer);
+    papplLogPrinter(printer, PAPPL_LOGLEVEL_DEBUG, "Adding media setup page '%s'.", path);
+    papplSystemAddResourceCallback(papplPrinterGetSystem(printer), path, "text/html",
+                                   media_page_cb, printer);
+    papplPrinterAddLink(printer, "Media Setup", path,
+                        PAPPL_LOPTIONS_NAVIGATION | PAPPL_LOPTIONS_CONFIGURATION);
 }

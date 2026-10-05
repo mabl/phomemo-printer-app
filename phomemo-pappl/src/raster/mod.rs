@@ -57,6 +57,7 @@ use phomemo_protocol::job::{EncodeError, Preamble, Raster};
 
 pub use self::host::{Host, Log};
 pub use self::options::{DARKNESS_LEVELS, INCH_PER_SECOND, PrintOptions, RasterHeader, SPEED_MAX};
+pub use self::page::MAX_ROWS;
 use self::page::Page;
 use crate::models::Model;
 use crate::pappl::LogLevel;

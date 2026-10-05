@@ -1,63 +1,57 @@
 //
 // Phomemo Printer Application — driver callbacks.
 //
-// tp_driver_cb reports each model's capabilities to PAPPL. The raster
+// phomemo_driver_cb reports each model's capabilities to PAPPL. The raster
 // callbacks hand PAPPL's pages to the Rust driver (pm_job_*), together with
-// tp_ops, the PAPPL functions it calls back.
+// driver_ops, the PAPPL functions it calls back.
 //
 
-#include <string.h>
 #include <errno.h>
+#include <string.h>
 #include <unistd.h>
-#include <pappl/pappl.h>
-#include "phomemo_pappl.h"
-
-// From device_bt.c
-extern void bt_start_job(pappl_job_t *job, pappl_device_t *device);
-extern bool bt_wait_printed(pappl_job_t *job, pappl_device_t *device,
-                            PmJobSent sent);
+#include "phomemo.h"
 
 // Vendor attributes: the job options the Rust driver reads.
-#define TP_VENDOR_DITHER      "phomemo-dither"
-#define TP_VENDOR_COMPRESSION "phomemo-compression"
+#define VENDOR_DITHER      "phomemo-dither"
+#define VENDOR_COMPRESSION "phomemo-compression"
 
 // ---------------------------------------------------------------------------
 // The PAPPL and CUPS values the Rust side mirrors (src/pappl.rs) must be the
 // real ones.
 // ---------------------------------------------------------------------------
 
-#define TP_ASSERT_SAME(rust, pappl) \
+#define ASSERT_SAME(rust, pappl) \
     _Static_assert((rust) == (pappl), #rust " differs from " #pappl)
 
-TP_ASSERT_SAME(PM_MAX_MEDIA, PAPPL_MAX_MEDIA);
-TP_ASSERT_SAME(PM_LOGLEVEL_DEBUG, PAPPL_LOGLEVEL_DEBUG);
-TP_ASSERT_SAME(PM_LOGLEVEL_INFO, PAPPL_LOGLEVEL_INFO);
-TP_ASSERT_SAME(PM_LOGLEVEL_WARN, PAPPL_LOGLEVEL_WARN);
-TP_ASSERT_SAME(PM_LOGLEVEL_ERROR, PAPPL_LOGLEVEL_ERROR);
-TP_ASSERT_SAME(PM_MEDIA_TRACKING_CONTINUOUS, PAPPL_MEDIA_TRACKING_CONTINUOUS);
-TP_ASSERT_SAME(PM_MEDIA_TRACKING_GAP, PAPPL_MEDIA_TRACKING_GAP);
-TP_ASSERT_SAME(PM_MEDIA_TRACKING_MARK, PAPPL_MEDIA_TRACKING_MARK);
-TP_ASSERT_SAME(PM_PREASON_OTHER, PAPPL_PREASON_OTHER);
-TP_ASSERT_SAME(PM_PREASON_COVER_OPEN, PAPPL_PREASON_COVER_OPEN);
-TP_ASSERT_SAME(PM_PREASON_MARKER_SUPPLY_LOW, PAPPL_PREASON_MARKER_SUPPLY_LOW);
-TP_ASSERT_SAME(PM_PREASON_MEDIA_EMPTY, PAPPL_PREASON_MEDIA_EMPTY);
-TP_ASSERT_SAME(PM_PREASON_OFFLINE, PAPPL_PREASON_OFFLINE);
-TP_ASSERT_SAME(PM_COLOR_MODE_BI_LEVEL, PAPPL_COLOR_MODE_BI_LEVEL);
-TP_ASSERT_SAME(PM_CONTENT_TEXT, PAPPL_CONTENT_TEXT);
-TP_ASSERT_SAME(PM_CONTENT_TEXT_AND_GRAPHIC, PAPPL_CONTENT_TEXT_AND_GRAPHIC);
-TP_ASSERT_SAME(PM_CSPACE_W, CUPS_CSPACE_W);
-TP_ASSERT_SAME(PM_CSPACE_K, CUPS_CSPACE_K);
-TP_ASSERT_SAME(PM_CSPACE_SW, CUPS_CSPACE_SW);
+ASSERT_SAME(PM_MAX_MEDIA, PAPPL_MAX_MEDIA);
+ASSERT_SAME(PM_LOGLEVEL_DEBUG, PAPPL_LOGLEVEL_DEBUG);
+ASSERT_SAME(PM_LOGLEVEL_INFO, PAPPL_LOGLEVEL_INFO);
+ASSERT_SAME(PM_LOGLEVEL_WARN, PAPPL_LOGLEVEL_WARN);
+ASSERT_SAME(PM_LOGLEVEL_ERROR, PAPPL_LOGLEVEL_ERROR);
+ASSERT_SAME(PM_MEDIA_TRACKING_CONTINUOUS, PAPPL_MEDIA_TRACKING_CONTINUOUS);
+ASSERT_SAME(PM_MEDIA_TRACKING_GAP, PAPPL_MEDIA_TRACKING_GAP);
+ASSERT_SAME(PM_MEDIA_TRACKING_MARK, PAPPL_MEDIA_TRACKING_MARK);
+ASSERT_SAME(PM_PREASON_OTHER, PAPPL_PREASON_OTHER);
+ASSERT_SAME(PM_PREASON_COVER_OPEN, PAPPL_PREASON_COVER_OPEN);
+ASSERT_SAME(PM_PREASON_MARKER_SUPPLY_LOW, PAPPL_PREASON_MARKER_SUPPLY_LOW);
+ASSERT_SAME(PM_PREASON_MEDIA_EMPTY, PAPPL_PREASON_MEDIA_EMPTY);
+ASSERT_SAME(PM_PREASON_OFFLINE, PAPPL_PREASON_OFFLINE);
+ASSERT_SAME(PM_COLOR_MODE_BI_LEVEL, PAPPL_COLOR_MODE_BI_LEVEL);
+ASSERT_SAME(PM_CONTENT_TEXT, PAPPL_CONTENT_TEXT);
+ASSERT_SAME(PM_CONTENT_TEXT_AND_GRAPHIC, PAPPL_CONTENT_TEXT_AND_GRAPHIC);
+ASSERT_SAME(PM_CSPACE_W, CUPS_CSPACE_W);
+ASSERT_SAME(PM_CSPACE_K, CUPS_CSPACE_K);
+ASSERT_SAME(PM_CSPACE_SW, CUPS_CSPACE_SW);
 
 // ---------------------------------------------------------------------------
 // The PAPPL functions the Rust driver calls back
 // ---------------------------------------------------------------------------
 
-static void tp_log(pappl_job_t *job, int level, const char *message) {
-    papplLogJob(job, level, "%s", message);
+static void driver_log(pappl_job_t *job, int level, const char *message) {
+    papplLogJob(job, (pappl_loglevel_t)level, "%s", message);
 }
 
-static PmOptions tp_options(const pappl_pr_options_t *options) {
+static PmOptions driver_options(const pappl_pr_options_t *options) {
     return (PmOptions) {
         .width               = options->header.cupsWidth,
         .height              = options->header.cupsHeight,
@@ -71,58 +65,58 @@ static PmOptions tp_options(const pappl_pr_options_t *options) {
         .media_length        = options->media.size_length,
         .color_mode          = options->print_color_mode,
         .content_optimize    = options->print_content_optimize,
-        .dither              = cupsGetOption(TP_VENDOR_DITHER,
+        .dither              = cupsGetOption(VENDOR_DITHER,
                                              options->num_vendor, options->vendor),
-        .compression         = cupsGetOption(TP_VENDOR_COMPRESSION,
+        .compression         = cupsGetOption(VENDOR_COMPRESSION,
                                              options->num_vendor, options->vendor),
     };
 }
 
-static const PmOps tp_ops = {
+static const PmOps driver_ops = {
     .write       = papplDeviceWrite,
     .flush       = papplDeviceFlush,
     .is_canceled = papplJobIsCanceled,
-    .log         = tp_log,
-    .options     = tp_options,
+    .log         = driver_log,
+    .options     = driver_options,
 };
 
 // ---------------------------------------------------------------------------
 // Raster callbacks — delegate to Rust
 // ---------------------------------------------------------------------------
 
-static bool tp_rstartjob(pappl_job_t *job, pappl_pr_options_t *options,
-                         pappl_device_t *device) {
+static bool driver_rstartjob(pappl_job_t *job, pappl_pr_options_t *options,
+                             pappl_device_t *device) {
     pappl_pr_driver_data_t data;
     papplPrinterGetDriverData(papplJobGetPrinter(job), &data);
 
-    PmJob *ctx = pm_job_start(data.extension, &tp_ops, job, options, device);
+    PmJob *ctx = pm_job_start(data.extension, &driver_ops, job, options, device);
     papplJobSetData(job, ctx);
     if (ctx)
-        bt_start_job(job, device);
+        phomemo_bt_start_job(job, device);
     return ctx != NULL;
 }
 
-static bool tp_rstartpage(pappl_job_t *job, pappl_pr_options_t *options,
-                          pappl_device_t *device, unsigned page) {
+static bool driver_rstartpage(pappl_job_t *job, pappl_pr_options_t *options,
+                              pappl_device_t *device, unsigned page) {
     (void)page;
-    return pm_job_start_page(papplJobGetData(job), &tp_ops, job, options, device);
+    return pm_job_start_page(papplJobGetData(job), &driver_ops, job, options, device);
 }
 
-static bool tp_rwriteline(pappl_job_t *job, pappl_pr_options_t *options,
-                          pappl_device_t *device, unsigned y,
-                          const unsigned char *line) {
+static bool driver_rwriteline(pappl_job_t *job, pappl_pr_options_t *options,
+                              pappl_device_t *device, unsigned y,
+                              const unsigned char *line) {
     (void)y;
-    return pm_job_write_line(papplJobGetData(job), &tp_ops, job, options, device, line);
+    return pm_job_write_line(papplJobGetData(job), &driver_ops, job, options, device, line);
 }
 
-static bool tp_rendpage(pappl_job_t *job, pappl_pr_options_t *options,
-                        pappl_device_t *device, unsigned page) {
+static bool driver_rendpage(pappl_job_t *job, pappl_pr_options_t *options,
+                            pappl_device_t *device, unsigned page) {
     (void)page;
-    return pm_job_end_page(papplJobGetData(job), &tp_ops, job, options, device);
+    return pm_job_end_page(papplJobGetData(job), &driver_ops, job, options, device);
 }
 
-static bool tp_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
-                       pappl_device_t *device) {
+static bool driver_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
+                           pappl_device_t *device) {
     // PAPPL ends a job again when ending it failed; it has ended already.
     PmJob *ctx = papplJobGetData(job);
     if (!ctx)
@@ -131,21 +125,21 @@ static bool tp_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
     PmJobSent sent = pm_job_sent(ctx);
 
     // pm_job_end frees the job's driver state, whatever it returns.
-    bool ok = pm_job_end(ctx, &tp_ops, job, options, device);
+    bool ok = pm_job_end(ctx, &driver_ops, job, options, device);
     papplJobSetData(job, NULL);
 
     // The printer reports each page it has printed; PAPPL closes the device
     // once the job has ended.
-    return ok && bt_wait_printed(job, device, sent);
+    return ok && phomemo_bt_wait_printed(job, device, sent);
 }
 
 // ---------------------------------------------------------------------------
 // Identify callback — no-op with log.
 // ---------------------------------------------------------------------------
 
-static void tp_identify(pappl_printer_t *printer,
-                        pappl_identify_actions_t actions,
-                        const char *message) {
+static void driver_identify(pappl_printer_t *printer,
+                            pappl_identify_actions_t actions,
+                            const char *message) {
     (void)actions;
     papplLogPrinter(printer, PAPPL_LOGLEVEL_INFO,
         "Identify requested: %s", message ? message : "(no message)");
@@ -155,7 +149,7 @@ static void tp_identify(pappl_printer_t *printer,
 // Printer status callback (idle polling)
 // ---------------------------------------------------------------------------
 
-static bool tp_status(pappl_printer_t *printer) {
+static bool driver_status(pappl_printer_t *printer) {
     pappl_device_t *device = papplPrinterOpenDevice(printer);
     if (!device)
         return false;
@@ -184,15 +178,15 @@ static bool tp_status(pappl_printer_t *printer) {
 // Test page callback — generates a small test pattern
 // ---------------------------------------------------------------------------
 
-static const char *tp_testpage(pappl_printer_t *printer, char *buffer,
-                               size_t bufsize) {
+static const char *driver_testpage(pappl_printer_t *printer, char *buffer,
+                                   size_t bufsize) {
     pappl_pr_driver_data_t data;
     papplPrinterGetDriverData(printer, &data);
 
     int fd = papplCreateTempFile(buffer, bufsize, "phomemo-testpage", "png");
     if (fd < 0) {
         papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR,
-                        "tp_testpage: unable to create temporary PNG: %s",
+                        "Unable to create the test page file: %s",
                         strerror(errno));
         return NULL;
     }
@@ -201,14 +195,14 @@ static const char *tp_testpage(pappl_printer_t *printer, char *buffer,
                                     data.media_ready[0].size_length);
     if (close(fd) < 0) {
         papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR,
-                        "tp_testpage: close failed for temporary PNG: %s",
+                        "Unable to close the test page file: %s",
                         strerror(errno));
         ok = false;
     }
 
     if (!ok) {
         papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR,
-                        "tp_testpage: failed to write test page PNG");
+                        "Unable to write the test page.");
         unlink(buffer);
         return NULL;
     }
@@ -220,15 +214,15 @@ static const char *tp_testpage(pappl_printer_t *printer, char *buffer,
 // printfile_cb — optional raw passthrough path
 // ---------------------------------------------------------------------------
 
-static bool tp_printfile(pappl_job_t *job, pappl_pr_options_t *options,
-                         pappl_device_t *device) {
+static bool driver_printfile(pappl_job_t *job, pappl_pr_options_t *options,
+                             pappl_device_t *device) {
     (void)options;
 
     char filename[1024];
     int fd = papplJobOpenFile(job, filename, sizeof(filename), NULL, NULL, "r");
     if (fd < 0) {
         papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-                    "tp_printfile: unable to open job file");
+                    "Unable to open the job file: %s", strerror(errno));
         return false;
     }
 
@@ -240,7 +234,7 @@ static bool tp_printfile(pappl_job_t *job, pappl_pr_options_t *options,
         ssize_t nwritten = papplDeviceWrite(device, buffer, (size_t)nread);
         if (nwritten != nread) {
             papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-                        "tp_printfile: short/failed write (%zd/%zd)",
+                        "Unable to send the job: wrote %zd of %zd bytes.",
                         nwritten, nread);
             ok = false;
             break;
@@ -249,7 +243,7 @@ static bool tp_printfile(pappl_job_t *job, pappl_pr_options_t *options,
 
     if (nread < 0) {
         papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-                    "tp_printfile: read failed");
+                    "Unable to read the job file: %s", strerror(errno));
         ok = false;
     }
 
@@ -261,7 +255,8 @@ static bool tp_printfile(pappl_job_t *job, pappl_pr_options_t *options,
     return ok;
 }
 
-static void tp_add_driver_attrs(ipp_t **driver_attrs) {
+// Add the vendor attributes' supported and default values.
+static void driver_add_vendor_attrs(ipp_t **driver_attrs) {
     if (!driver_attrs)
         return;
 
@@ -290,7 +285,7 @@ static void tp_add_driver_attrs(ipp_t **driver_attrs) {
         attrs,
         IPP_TAG_PRINTER,
         IPP_TAG_KEYWORD,
-        TP_VENDOR_DITHER "-supported",
+        VENDOR_DITHER "-supported",
         (int)(sizeof(dither_values) / sizeof(dither_values[0])),
         NULL,
         dither_values);
@@ -298,7 +293,7 @@ static void tp_add_driver_attrs(ipp_t **driver_attrs) {
         attrs,
         IPP_TAG_PRINTER,
         IPP_TAG_KEYWORD,
-        TP_VENDOR_DITHER "-default",
+        VENDOR_DITHER "-default",
         NULL,
         "auto");
 
@@ -306,7 +301,7 @@ static void tp_add_driver_attrs(ipp_t **driver_attrs) {
         attrs,
         IPP_TAG_PRINTER,
         IPP_TAG_KEYWORD,
-        TP_VENDOR_COMPRESSION "-supported",
+        VENDOR_COMPRESSION "-supported",
         (int)(sizeof(compression_values) / sizeof(compression_values[0])),
         NULL,
         compression_values);
@@ -314,19 +309,19 @@ static void tp_add_driver_attrs(ipp_t **driver_attrs) {
         attrs,
         IPP_TAG_PRINTER,
         IPP_TAG_KEYWORD,
-        TP_VENDOR_COMPRESSION "-default",
+        VENDOR_COMPRESSION "-default",
         NULL,
         "auto");
 }
 
 // ---------------------------------------------------------------------------
-// autoadd_cb — delegates to Rust IEEE 1284 scored matcher
+// Auto-add callback — delegates to the Rust IEEE 1284 matcher
 // ---------------------------------------------------------------------------
 
-const char *tp_autoadd_cb(const char *device_info,
-                          const char *device_uri,
-                          const char *device_id,
-                          void *data) {
+const char *phomemo_autoadd_cb(const char *device_info,
+                               const char *device_uri,
+                               const char *device_id,
+                               void *data) {
     (void)device_uri;
     (void)data;
     // Matching is implemented in Rust: see phomemo-pappl/src/autoadd.rs.
@@ -334,13 +329,13 @@ const char *tp_autoadd_cb(const char *device_info,
 }
 
 // ---------------------------------------------------------------------------
-// driver_cb — Rust supplies the model's capabilities, C fills in the rest
+// Driver callback — Rust supplies the model's capabilities, C the rest
 // ---------------------------------------------------------------------------
 
-bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
-                  const char *device_uri, const char *device_id,
-                  pappl_pr_driver_data_t *dd, ipp_t **driver_attrs,
-                  void *data) {
+bool phomemo_driver_cb(pappl_system_t *system, const char *driver_name,
+                       const char *device_uri, const char *device_id,
+                       pappl_pr_driver_data_t *dd, ipp_t **driver_attrs,
+                       void *data) {
     (void)system; (void)device_uri; (void)device_id;
     (void)data;
 
@@ -351,15 +346,15 @@ bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
         return false;
 
     // --- Callbacks (must stay C — they reference PAPPL opaque types) ---
-    dd->rstartjob_cb  = tp_rstartjob;
-    dd->rstartpage_cb = tp_rstartpage;
-    dd->rwriteline_cb = tp_rwriteline;
-    dd->rendpage_cb   = tp_rendpage;
-    dd->rendjob_cb    = tp_rendjob;
-    dd->status_cb     = tp_status;
-    dd->identify_cb   = tp_identify;
-    dd->testpage_cb   = tp_testpage;
-    dd->printfile_cb  = tp_printfile;
+    dd->rstartjob_cb  = driver_rstartjob;
+    dd->rstartpage_cb = driver_rstartpage;
+    dd->rwriteline_cb = driver_rwriteline;
+    dd->rendpage_cb   = driver_rendpage;
+    dd->rendjob_cb    = driver_rendjob;
+    dd->status_cb     = driver_status;
+    dd->identify_cb   = driver_identify;
+    dd->testpage_cb   = driver_testpage;
+    dd->printfile_cb  = driver_printfile;
 
     papplCopyString(dd->make_and_model, defaults.make_and_model,
                     sizeof(dd->make_and_model));
@@ -449,9 +444,9 @@ bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
 
     // Vendor attributes: dithering algorithm and compression selection
     dd->num_vendor = 2;
-    dd->vendor[0]  = TP_VENDOR_DITHER;
-    dd->vendor[1]  = TP_VENDOR_COMPRESSION;
-    tp_add_driver_attrs(driver_attrs);
+    dd->vendor[0]  = VENDOR_DITHER;
+    dd->vendor[1]  = VENDOR_COMPRESSION;
+    driver_add_vendor_attrs(driver_attrs);
 
     // Per-driver extension: the model, for the raster callbacks, the test
     // page and the media page. PAPPL only stores the (non-const) pointer.

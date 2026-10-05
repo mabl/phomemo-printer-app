@@ -47,22 +47,34 @@ path.
 ./phomemo-printer-app server
 ```
 
+`--help` lists the sub-commands, including the two below, and the settings;
+`-h` and `help` are not accepted.
+
 Default runtime behavior:
 
 - listen host: `localhost`
 - port: auto-selected free port (PAPPL default)
 - no PAM auth in local mode
 
-Override runtime values with environment variables:
+Override runtime values with environment variables, or with the server
+options in parentheses (`server -o NAME=VALUE`, or PAPPL's configuration
+file), which take precedence:
 
-- `PHOMEMO_SERVER_PORT`
-- `PHOMEMO_LISTEN_HOSTNAME`
-- `PHOMEMO_AUTH_SERVICE`
-- `PHOMEMO_ADMIN_GROUP`
-- `PHOMEMO_LOG_FILE`
-- `PHOMEMO_LOG_LEVEL` (`debug|info|warn|error|fatal`)
-- `PHOMEMO_SPOOL_DIRECTORY`
-- `PHOMEMO_TLS_ONLY` (`0|1|true|false|yes|no`)
+- `PHOMEMO_SERVER_PORT` (`server-port`)
+- `PHOMEMO_LISTEN_HOSTNAME` (`listen-hostname`): a host name, an IPv4
+  address, an IPv6 address in brackets, `*` for every address, or a domain
+  socket path
+- `PHOMEMO_AUTH_SERVICE` (`auth-service`)
+- `PHOMEMO_ADMIN_GROUP` (`admin-group`)
+- `PHOMEMO_LOG_FILE` (`log-file`)
+- `PHOMEMO_LOG_LEVEL` (`log-level`: `debug|info|warn|error|fatal`)
+- `PHOMEMO_SPOOL_DIRECTORY` (`spool-directory`)
+- `PHOMEMO_TLS_ONLY` (`tls-only`: `0|1|true|false|yes|no|on|off`)
+
+An empty value restores the default, so an empty server option (e.g.
+`-o auth-service=`) undoes the environment variable. An invalid value is
+reported on stderr and ignored.
+
 - `PHOMEMO_BT_CHANNELS`: the RFCOMM channels to try, comma-separated
   (default `1`); a device URI can name one with `?channel=N`
 
@@ -75,7 +87,10 @@ Create an IPP Everywhere queue pointed at the local app:
 ```
 
 Note: when server port is auto-selected, `register-cups` requires an explicit
-`--port` value (or `PHOMEMO_SERVER_PORT`) so the queue URI is stable.
+`--port` value (or `PHOMEMO_SERVER_PORT`) so the queue URI is stable. The
+queue reaches the server at `PHOMEMO_LISTEN_HOSTNAME` (`localhost` when it
+listens on every address), over `ipps` when `PHOMEMO_TLS_ONLY` is set; the
+sub-commands read the environment only, not server options.
 
 Recreate an existing queue:
 
@@ -88,6 +103,10 @@ Remove the queue:
 ```bash
 ./phomemo-printer-app unregister-cups --queue phomemo
 ```
+
+`unregister-cups` takes `--queue` only (`--port` is an error). Both
+sub-commands exit with 0 on success, 2 for invalid arguments, and 1 on any
+other failure, including when `lpstat` or `lpadmin` is missing.
 
 ## Install binary and systemd unit
 

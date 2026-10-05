@@ -4,7 +4,7 @@
 //! follow from that live here, once, for the raster driver and for the C
 //! media page alike.
 
-use std::ffi::{CStr, c_char, c_int, c_uint};
+use std::ffi::{CStr, c_char, c_int, c_ushort};
 
 use phomemo_protocol::media::MediaTracking;
 
@@ -36,7 +36,7 @@ pub const fn media_type(length: c_int) -> &'static CStr {
 /// was chosen explicitly. `None` means the job named no single mode the
 /// printer knows, and the printer's own setting stands.
 #[must_use]
-pub const fn job_tracking(flag: c_uint, length: c_int) -> Option<MediaTracking> {
+pub const fn job_tracking(flag: c_ushort, length: c_int) -> Option<MediaTracking> {
     if is_roll(length) && flag != PM_MEDIA_TRACKING_MARK {
         Some(MediaTracking::Continuous)
     } else {
@@ -71,7 +71,7 @@ pub unsafe extern "C" fn pm_media_tracking(
     model: *const PmModel,
     size_name: *const c_char,
     length: c_int,
-) -> c_uint {
+) -> c_ushort {
     let size_name = if size_name.is_null() {
         c""
     } else {
@@ -84,6 +84,13 @@ pub unsafe extern "C" fn pm_media_tracking(
         length,
     );
     tracking_flag(tracking)
+}
+
+/// PAPPL's `media-type` keyword for media `length` hundredths of a
+/// millimetre long; see [`media_type`]. The string is static.
+#[unsafe(no_mangle)]
+pub const extern "C" fn pm_media_type(length: c_int) -> *const c_char {
+    media_type(length).as_ptr()
 }
 
 /// Whether `model` takes media `width` x `length` hundredths of a
@@ -159,6 +166,8 @@ mod tests {
     fn ffi_media_fits() {
         assert!(pm_media_fits(m220().view(), 7000, 3000));
         assert!(!pm_media_fits(m220().view(), 8000, 3000));
+        assert!(pm_media_fits(m220().view(), 4000, 819_900));
+        assert!(!pm_media_fits(m220().view(), 4000, 820_000));
         assert!(pm_media_fits(std::ptr::null(), 8000, 3000));
         assert!(!pm_media_fits(std::ptr::null(), 0, 3000));
     }
@@ -167,6 +176,8 @@ mod tests {
     fn media_types() {
         assert_eq!(media_type(0), c"continuous");
         assert_eq!(media_type(3000), c"labels");
+        // SAFETY: pm_media_type returns a static C string.
+        assert_eq!(unsafe { CStr::from_ptr(pm_media_type(0)) }, c"continuous");
     }
 
     #[test]
