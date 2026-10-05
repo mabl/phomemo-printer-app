@@ -1,214 +1,188 @@
-//! Per-model capability database for the Phomemo printer family.
+//! Per-model capabilities of the Phomemo printer family.
+//!
+//! A model is listed only if there is positive evidence that it speaks this
+//! crate's command set (`ESC N` / `US DC1` settings, `ESC @`, `GS v 0`
+//! raster), and its head width is the one the vendor code aligns rasters
+//! against - so a margin computed from it always fits the one-byte
+//! `LEFT_MARGIN`. Models whose vendor drivers use another command set
+//! (`rastertoM08F`, `rastertoD480`, `ESC a` justification) or that the
+//! vendor app drives without any alignment (the reverse-scanned P/D tape
+//! printers, the E series, M110C, M120C, M221) are deliberately absent.
+//!
+//! Sources, cited per row (Print Master = `Print_Master_5.17.1` APK,
+//! `com.project.aimotech.printer`; QY = vendor CUPS driver 1.8.0):
+//!
+//! - **PM-M200**: Print Master `M200Printer.printBitmapx` sends
+//!   `LEFT_MARGIN(72 - width)` and `ESC @` (`MAX_PRINT_WIDTH = 72` bytes);
+//!   subclasses inherit it. QY PPDs: `rastertolabelmxxx`, 203 dpi; phomemo-tools
+//!   `rastertopm110.py` drives the M220 with `ESC N` and `US DC1` settings.
+//!   The M220 was validated on hardware (`re/RE_RESULTS_BITMAP_GEOMETRY.md`).
+//! - **PM-M120**: Print Master `M120Printer.fillWhitePaddingWithMSeries`
+//!   sends `LEFT_MARGIN(48 - width)`; QY `M102.ppd`/`M120.ppd`:
+//!   `rastertolabelmxxx`, 203 dpi.
+//! - **PM-M110**: Print Master `M110Printer.fillWhitePaddingWithMSeries`
+//!   right-aligns by padding rows to 48 bytes instead of sending a margin,
+//!   so `LEFT_MARGIN` itself is *unverified* on these models; QY PPDs:
+//!   `rastertolabelmxxx`, 203 dpi, clamped to 48 bytes.
+//! - **PM-D30**: Print Master `D30Printer.printNormal` / `A30Printer.printNormal`
+//!   send `LEFT_MARGIN(12 - width)` and `ESC @` (`MAX_PRINT_WIDTH = 12`
+//!   bytes, a static that subclasses share); phomemo-tools `rastertopd30.py`
+//!   sends `1F 11 24 00`, `ESC @`, `GS v 0`. Resolution from
+//!   `getBitmapScaleSize()`: 1.0 (203 dpi), or 0.8866995 = 180/203 for
+//!   `D50Printer`.
 
-use std::sync::OnceLock;
-
-/// Hardware capabilities for a specific printer model.
-#[derive(Debug, Clone)]
+/// Hardware capabilities of one printer model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModelInfo {
-    /// Model name as printed on the device (e.g. "M220").
+    /// Model name as printed on the device, e.g. `M220`.
     pub name: &'static str,
-    /// Model series (e.g. "M200").
+    /// Model series, e.g. `M200`; also a media pool name where one exists.
     pub series: &'static str,
-    /// Print resolution in DPI.
+    /// Print resolution in dots per inch, both axes.
     pub dpi: u16,
-    /// Maximum print width in pixels.
+    /// Print-head width in dots.
     pub max_width_px: u16,
-    /// Maximum print width in bytes (`max_width_px` / 8).
-    pub max_width_bytes: u16,
     /// Whether the firmware accepts LZO-compressed raster data.
     pub supports_compression: bool,
-    /// Feed distance after print (protocol-level, in firmware units).
-    pub feed_distance: u8,
-    /// Number of ESC d feed lines between pages.
-    pub feed_lines: u8,
     /// Whether the device has a cutter.
     pub has_cutter: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct CapabilityProfile {
-    dpi: u16,
-    max_width_px: u16,
-    supports_compression: bool,
-    feed_distance: u8,
-    feed_lines: u8,
-    has_cutter: bool,
+impl ModelInfo {
+    /// Print-head width in bytes, as raster rows are packed.
+    #[must_use]
+    pub const fn max_width_bytes(&self) -> u16 {
+        self.max_width_px.div_ceil(8)
+    }
 }
 
-const PROFILE_M200_SERIES: CapabilityProfile = CapabilityProfile {
-    dpi: 203,
-    max_width_px: 576,
-    supports_compression: true,
-    feed_distance: 17,
-    feed_lines: 2,
-    has_cutter: false,
-};
+/// A row of the table.
+///
+/// `supports_compression` is carried over from earlier revisions: LZO is
+/// verified only for the M200 series (Print Master `M220CPrinter`, and the
+/// M220 hardware). No listed model has a cutter.
+const fn model(name: &'static str, series: &'static str, dpi: u16, max_width_px: u16) -> ModelInfo {
+    ModelInfo {
+        name,
+        series,
+        dpi,
+        max_width_px,
+        supports_compression: true,
+        has_cutter: false,
+    }
+}
 
-const PROFILE_48MM_SERIES: CapabilityProfile = CapabilityProfile {
-    dpi: 203,
-    max_width_px: 384,
-    supports_compression: true,
-    feed_distance: 17,
-    feed_lines: 2,
-    has_cutter: false,
-};
-
-const PROFILE_LARGE_FORMAT: CapabilityProfile = CapabilityProfile {
-    dpi: 203,
-    max_width_px: 640,
-    supports_compression: true,
-    feed_distance: 17,
-    feed_lines: 2,
-    has_cutter: false,
-};
-
-const PROFILE_POCKET: CapabilityProfile = CapabilityProfile {
-    dpi: 203,
-    max_width_px: 128,
-    supports_compression: true,
-    feed_distance: 17,
-    feed_lines: 2,
-    has_cutter: false,
-};
-
-const MODEL_SEEDS: &[(&str, &str, CapabilityProfile)] = &[
-    // M200 series
-    ("M200", "M200", PROFILE_M200_SERIES),
-    ("M200C", "M200", PROFILE_M200_SERIES),
-    ("M206", "M200", PROFILE_M200_SERIES),
-    ("M208", "M200", PROFILE_M200_SERIES),
-    ("M209", "M200", PROFILE_M200_SERIES),
-    ("M219", "M200", PROFILE_M200_SERIES),
-    ("M220", "M200", PROFILE_M200_SERIES),
-    ("M220C", "M200", PROFILE_M200_SERIES),
-    ("M220S", "M200", PROFILE_M200_SERIES),
-    ("M221", "M200", PROFILE_M200_SERIES),
-    // 48mm families
-    ("M100", "M150", PROFILE_48MM_SERIES),
-    ("M102", "M120", PROFILE_48MM_SERIES),
-    ("M105", "M110", PROFILE_48MM_SERIES),
-    ("M108", "M110", PROFILE_48MM_SERIES),
-    ("M109", "M110", PROFILE_48MM_SERIES),
-    ("M110", "M110", PROFILE_48MM_SERIES),
-    ("M110C", "M110", PROFILE_48MM_SERIES),
-    ("M110S", "M110", PROFILE_48MM_SERIES),
-    ("M120", "M120", PROFILE_48MM_SERIES),
-    ("M120C", "M120", PROFILE_48MM_SERIES),
-    ("M126", "M120", PROFILE_48MM_SERIES),
-    ("M150", "M150", PROFILE_48MM_SERIES),
-    // D/Q label maker families
-    ("A30", "D30", PROFILE_48MM_SERIES),
-    ("D10", "D30", PROFILE_48MM_SERIES),
-    ("D20", "D30", PROFILE_48MM_SERIES),
-    ("D30", "D30", PROFILE_48MM_SERIES),
-    ("D31", "D30", PROFILE_48MM_SERIES),
-    ("D32", "D30", PROFILE_48MM_SERIES),
-    ("D35", "D30", PROFILE_48MM_SERIES),
-    ("D50", "D50", PROFILE_48MM_SERIES),
-    ("DM170", "D30", PROFILE_48MM_SERIES),
-    ("Q30", "Q30", PROFILE_48MM_SERIES),
-    // Pocket models
-    ("M02", "M02", PROFILE_POCKET),
-    ("M03", "M03", PROFILE_POCKET),
-    ("M04", "M04", PROFILE_POCKET),
-    ("T02", "T02", PROFILE_POCKET),
-    // Wide/desktop families
-    ("D1600", "P3100", PROFILE_LARGE_FORMAT),
-    ("D480", "D480", PROFILE_LARGE_FORMAT),
-    ("D680", "P780", PROFILE_LARGE_FORMAT),
-    ("E600S", "E600S", PROFILE_LARGE_FORMAT),
-    ("E8000", "E600S", PROFILE_LARGE_FORMAT),
-    ("E9000", "E9000", PROFILE_LARGE_FORMAT),
-    ("G100", "G100", PROFILE_LARGE_FORMAT),
-    ("LM1600", "P3100", PROFILE_LARGE_FORMAT),
-    ("LT12", "P12", PROFILE_LARGE_FORMAT),
-    ("M08F", "M200", PROFILE_LARGE_FORMAT),
-    ("M831", "M831", PROFILE_LARGE_FORMAT),
-    ("M832", "M831", PROFILE_LARGE_FORMAT),
-    ("M833", "M831", PROFILE_LARGE_FORMAT),
-    ("M834", "M831", PROFILE_LARGE_FORMAT),
-    ("M835", "M831", PROFILE_LARGE_FORMAT),
-    ("M950", "P3100", PROFILE_LARGE_FORMAT),
-    ("M960", "P3100", PROFILE_LARGE_FORMAT),
-    ("P1000", "P1000", PROFILE_LARGE_FORMAT),
-    ("P12", "P12", PROFILE_LARGE_FORMAT),
-    ("P3100", "P3100", PROFILE_LARGE_FORMAT),
-    ("P3200", "P3100", PROFILE_LARGE_FORMAT),
-    ("P780", "P780", PROFILE_LARGE_FORMAT),
-    ("S821", "S821", PROFILE_LARGE_FORMAT),
-    ("S823", "S823", PROFILE_LARGE_FORMAT),
-    ("TK", "TK", PROFILE_LARGE_FORMAT),
+#[rustfmt::skip]
+static MODELS: [ModelInfo; 29] = [
+    model("A30",   "D30",  203,  96), // PM-D30 (A30Printer)
+    model("D10",   "D30",  203,  96), // PM-D30
+    model("D20",   "D30",  203,  96), // PM-D30
+    model("D30",   "D30",  203,  96), // PM-D30
+    model("D31",   "D30",  203,  96), // PM-D30 (via Q30Printer)
+    model("D32",   "D30",  203,  96), // PM-D30 (via Q30Printer)
+    model("D35",   "D30",  203,  96), // PM-D30
+    model("D50",   "D50",  180,  96), // PM-D30 (D50Printer: 180 dpi)
+    model("DM170", "D30",  203,  96), // PM-D30 (via A30Printer)
+    model("M100",  "M150", 203, 384), // PM-M110 (via M150Printer); QY M100.ppd
+    model("M102",  "M120", 203, 384), // PM-M120; QY M102.ppd
+    model("M105",  "M110", 203, 384), // PM-M110 (via M108Printer); QY M105.ppd
+    model("M108",  "M110", 203, 384), // PM-M110; QY M108.ppd
+    model("M109",  "M110", 203, 384), // PM-M110 (via M108Printer); QY M109.ppd
+    model("M110",  "M110", 203, 384), // PM-M110; QY M110.ppd; phomemo-tools
+    model("M110S", "M110", 203, 384), // PM-M110 (M110sPrinter); QY M110S.ppd
+    model("M120",  "M120", 203, 384), // PM-M120; QY M120.ppd; phomemo-tools
+    model("M126",  "M120", 203, 384), // PM-M120 (extends M120Printer)
+    model("M150",  "M150", 203, 384), // PM-M110 (extends M110Printer); QY M150.ppd
+    model("M200",  "M200", 203, 576), // PM-M200; QY M200.ppd
+    model("M200C", "M200", 203, 576), // PM-M200 (M200CPrinter)
+    model("M206",  "M200", 203, 576), // PM-M200 (M200Printer, SN Q017)
+    model("M208",  "M200", 203, 576), // PM-M200; QY M208.ppd
+    model("M209",  "M200", 203, 576), // PM-M200 (M209Printer); QY M209.ppd
+    model("M219",  "M200", 203, 576), // PM-M200; QY M219.ppd
+    model("M220",  "M200", 203, 576), // PM-M200; QY M220.ppd; validated on hardware
+    model("M220C", "M200", 203, 576), // PM-M200 (M220CPrinter)
+    model("M220S", "M200", 203, 576), // PM-M200 (M220SPrinter)
+    model("Q30",   "Q30",  203,  96), // PM-D30 (Q30Printer)
 ];
 
-fn build_models() -> Vec<ModelInfo> {
-    let mut models = MODEL_SEEDS
-        .iter()
-        .map(|(name, series, profile)| ModelInfo {
-            name,
-            series,
-            dpi: profile.dpi,
-            max_width_px: profile.max_width_px,
-            max_width_bytes: profile.max_width_px / 8,
-            supports_compression: profile.supports_compression,
-            feed_distance: profile.feed_distance,
-            feed_lines: profile.feed_lines,
-            has_cutter: profile.has_cutter,
-        })
-        .collect::<Vec<_>>();
-
-    models.sort_by_key(|m| m.name);
-    models.dedup_by(|left, right| left.name.eq_ignore_ascii_case(right.name));
-    models
+/// Every known model, sorted by name.
+#[must_use]
+pub const fn all() -> &'static [ModelInfo] {
+    &MODELS
 }
 
-fn models() -> &'static [ModelInfo] {
-    static MODELS: OnceLock<Vec<ModelInfo>> = OnceLock::new();
-    MODELS.get_or_init(build_models)
-}
-
-/// Lookup a model by name (case-insensitive).
+/// The model called `name`, ignoring ASCII case.
 #[must_use]
 pub fn lookup(name: &str) -> Option<&'static ModelInfo> {
-    models()
+    MODELS
         .iter()
         .find(|model| model.name.eq_ignore_ascii_case(name))
-}
-
-/// All known models, for enumeration.
-#[must_use]
-pub fn all_models() -> &'static [ModelInfo] {
-    models()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::LeftMargin;
 
     #[test]
-    fn lookup_is_case_insensitive() {
-        assert!(lookup("m220").is_some());
-        assert!(lookup("M220").is_some());
+    fn table_is_sorted_and_unique_ignoring_case() {
+        for (a, b) in MODELS.iter().zip(&MODELS[1..]) {
+            assert!(
+                a.name.to_ascii_uppercase() < b.name.to_ascii_uppercase(),
+                "{} must sort strictly before {}",
+                a.name,
+                b.name
+            );
+        }
     }
 
     #[test]
-    fn known_model_catalog_contains_multiple_families() {
-        assert!(lookup("M220").is_some());
-        assert!(lookup("M110").is_some());
-        assert!(lookup("D30").is_some());
-        assert!(lookup("P3100").is_some());
+    fn heads_are_plausible() {
+        for model in all() {
+            assert!(
+                [180, 203].contains(&model.dpi),
+                "{}: {} dpi",
+                model.name,
+                model.dpi
+            );
+            assert!(model.max_width_px > 0, "{}: no head width", model.name);
+        }
     }
 
     #[test]
-    fn all_models_are_unique_by_name() {
-        let all = all_models();
-        for i in 0..all.len() {
-            for j in (i + 1)..all.len() {
-                assert!(
-                    !all[i].name.eq_ignore_ascii_case(all[j].name),
-                    "duplicate model name in catalog: {}",
-                    all[i].name
-                );
-            }
+    fn every_margin_fits_in_a_byte() {
+        // The widest margin is a whole head, for an empty image.
+        for model in all() {
+            let head = usize::from(model.max_width_bytes());
+            assert!(LeftMargin::for_width(head, 0).is_ok(), "{}", model.name);
+        }
+    }
+
+    #[test]
+    fn lookup_ignores_case() {
+        assert_eq!(lookup("m220"), lookup("M220"));
+        assert_eq!(lookup("M220").map(|m| m.name), Some("M220"));
+        assert_eq!(lookup("M9999"), None);
+    }
+
+    #[test]
+    fn m220_matches_validated_hardware() {
+        let m220 = lookup("M220").expect("known model");
+        assert_eq!(
+            (m220.dpi, m220.max_width_px, m220.max_width_bytes()),
+            (203, 576, 72)
+        );
+        assert_eq!(m220.series, "M200");
+    }
+
+    #[test]
+    fn d30_class_heads_are_twelve_bytes() {
+        for name in ["D30", "D50", "Q30", "A30"] {
+            assert_eq!(
+                lookup(name).map(ModelInfo::max_width_bytes),
+                Some(12),
+                "{name}"
+            );
         }
     }
 }

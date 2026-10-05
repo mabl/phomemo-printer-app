@@ -2,18 +2,29 @@
 
 """Generate a normalized Phomemo media catalog from reference JSON inputs.
 
-This script transforms media definition JSON files into a clean,
-driver-friendly catalog consumed by `phomemo-protocol`.
+This script transforms the media definitions bundled with the Print Master
+app (``localPaper.json``, ``DefaultPrinter.json`` and
+``DefaultTypeGroup.json`` under the APK's ``assets/``) into a clean,
+driver-friendly catalog consumed by ``phomemo-protocol``.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUT = REPO_ROOT / "phomemo-protocol" / "data" / "media_catalog.json"
+GENERATOR = "scripts/generate_media_catalog.py"
+
+LOCAL_PAPER = "localPaper.json"
+DEFAULT_PRINTER = "DefaultPrinter.json"
+DEFAULT_TYPE_GROUP = "DefaultTypeGroup.json"
 
 
 PAPER_TYPE_TO_TRACKING = {
@@ -24,9 +35,11 @@ PAPER_TYPE_TO_TRACKING = {
     4: "card",
 }
 
+# localPaper.json series strings, in matching priority order: a series that
+# is not listed verbatim goes to the first entry sharing one of its models.
 LOCAL_SERIES_TO_POOL = {
-    "M110/M120/M100": "M110",
     "M200": "M200",
+    "M110/M120/M100": "M110",
     "D30/A30/P15": "D30",
     "D50": "D50",
     "P1000": "P1000",
@@ -40,24 +53,16 @@ LOCAL_SERIES_TO_POOL = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--local-paper",
-        default="../reference-data/localPaper.json",
-        help="Path to localPaper.json",
-    )
-    parser.add_argument(
-        "--default-printer",
-        default="../reference-data/DefaultPrinter.json",
-        help="Path to DefaultPrinter.json",
-    )
-    parser.add_argument(
-        "--default-type-group",
-        default="../reference-data/DefaultTypeGroup.json",
-        help="Path to DefaultTypeGroup.json",
+        "--reference-dir",
+        type=Path,
+        required=True,
+        help=f"directory holding {LOCAL_PAPER}, {DEFAULT_PRINTER} and {DEFAULT_TYPE_GROUP}",
     )
     parser.add_argument(
         "--out",
-        default="../phomemo-protocol/data/media_catalog.json",
-        help="Output JSON path",
+        type=Path,
+        default=DEFAULT_OUT,
+        help=f"output JSON path (default: {DEFAULT_OUT.relative_to(REPO_ROOT)})",
     )
     return parser.parse_args()
 
@@ -67,11 +72,9 @@ def _load_json(path: Path) -> Any:
         return json.load(f)
 
 
-def _render_source_path(path: Path, repo_root: Path) -> str:
-    try:
-        return str(path.relative_to(repo_root))
-    except ValueError:
-        return str(path)
+def _describe_source(path: Path) -> dict[str, str]:
+    """Identify an input by name and content, without its local location."""
+    return {"file": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
 def _fmt_mm(value: float) -> str:
@@ -82,9 +85,9 @@ def _fmt_mm(value: float) -> str:
 
 
 def _size_name(width_mm: float, length_mm: float) -> str:
-    w = _fmt_mm(width_mm)
-    l = _fmt_mm(length_mm)
-    return f"om_{w}x{l}mm_{w}x{l}mm"
+    width = _fmt_mm(width_mm)
+    length = _fmt_mm(length_mm)
+    return f"om_{width}x{length}mm_{width}x{length}mm"
 
 
 def _paper_type_from_raw(
@@ -117,29 +120,18 @@ def _material_name(raw: str) -> str:
     return mapping.get(raw, "unknown")
 
 
+def _series_models(series: str) -> set[str]:
+    return set(filter(None, series.split("/")))
+
+
 def _pool_from_series(series: str, anomalies: list[dict[str, Any]]) -> str:
     if series in LOCAL_SERIES_TO_POOL:
         return LOCAL_SERIES_TO_POOL[series]
 
-    tokens = set(filter(None, series.split("/")))
-    if {"M200"} & tokens:
-        return "M200"
-    if {"M110", "M120", "M100"} & tokens:
-        return "M110"
-    if {"D30", "A30", "P15"} & tokens:
-        return "D30"
-    if {"D50"} & tokens:
-        return "D50"
-    if {"P1000"} & tokens:
-        return "P1000"
-    if {"P12", "LT12", "F12"} & tokens:
-        return "P12"
-    if {"D480"} & tokens:
-        return "D480"
-    if {"P780", "D680"} & tokens:
-        return "P780"
-    if {"P3100", "P3200", "D1600", "M960", "M950", "LM1600"} & tokens:
-        return "P3100"
+    models = _series_models(series)
+    for known_series, pool in LOCAL_SERIES_TO_POOL.items():
+        if models & _series_models(known_series):
+            return pool
 
     anomalies.append(
         {
@@ -152,7 +144,8 @@ def _pool_from_series(series: str, anomalies: list[dict[str, Any]]) -> str:
 
 
 def _resolve_pool_for_series(series: str, anomalies: list[dict[str, Any]]) -> str:
-    # Mirrors LocalPaperPresenter routing behavior.
+    # Mirrors Print Master's LocalPaperPresenter routing (mLocalPapers,
+    # dLocalPapers and pLocalPapers).
     if series == "M200":
         return "M200"
     if series in {"M110", "M120", "M100", "M150", "M400", "E600S", "E9000", "E50"}:
@@ -160,15 +153,13 @@ def _resolve_pool_for_series(series: str, anomalies: list[dict[str, Any]]) -> st
 
     if series == "D50":
         return "D50"
-    if series in {"P12", "F12"}:
+    if series in {"P12", "F12", "LT12"}:
         return "P12"
     if series in {"D30", "Q30", "A30", "P15", "DM170"}:
         return "D30"
 
     if series == "P1000":
         return "P1000"
-    if series in {"P12", "LT12"}:
-        return "P12"
     if series == "D480":
         return "D480"
     if series in {"P780", "D680"}:
@@ -182,7 +173,7 @@ def _resolve_pool_for_series(series: str, anomalies: list[dict[str, Any]]) -> st
                 "kind": "series_fallback",
                 "series": series,
                 "fallback_pool": "M110",
-                "reason": "M/E family fallback from reference defaults",
+                "reason": "M/E family fallback from PM mLocalPapers default",
             }
         )
         return "M110"
@@ -192,7 +183,7 @@ def _resolve_pool_for_series(series: str, anomalies: list[dict[str, Any]]) -> st
                 "kind": "series_fallback",
                 "series": series,
                 "fallback_pool": "D30",
-                "reason": "D-family fallback from reference defaults",
+                "reason": "D-family fallback from PM dLocalPapers default",
             }
         )
         return "D30"
@@ -202,7 +193,7 @@ def _resolve_pool_for_series(series: str, anomalies: list[dict[str, Any]]) -> st
                 "kind": "series_fallback",
                 "series": series,
                 "fallback_pool": "P3100",
-                "reason": "P-family fallback from reference defaults",
+                "reason": "P-family fallback from PM pLocalPapers default",
             }
         )
         return "P3100"
@@ -440,7 +431,7 @@ def _collect_types(
             str(row.get("series", "")).strip() or None,
             str(row.get("sn", "")).strip() or None,
             str(row.get("displayName", "")).strip() or None,
-            "DefaultPrinter.json",
+            DEFAULT_PRINTER,
         )
 
     groups = default_type_group.get("data", {}).get("list", [])
@@ -451,7 +442,7 @@ def _collect_types(
                 str(row.get("series", "")).strip() or None,
                 str(row.get("sn", "")).strip() or None,
                 str(row.get("displayName", "")).strip() or None,
-                "DefaultTypeGroup.json",
+                DEFAULT_TYPE_GROUP,
             )
 
     return gathered
@@ -522,13 +513,10 @@ def _build_printer_types(
 
 def main() -> int:
     args = parse_args()
-    script_dir = Path(__file__).resolve().parent
-    repo_root = script_dir.parent.parent
-
-    local_paper_path = (script_dir / args.local_paper).resolve()
-    default_printer_path = (script_dir / args.default_printer).resolve()
-    default_type_group_path = (script_dir / args.default_type_group).resolve()
-    out_path = (script_dir / args.out).resolve()
+    local_paper_path = args.reference_dir / LOCAL_PAPER
+    default_printer_path = args.reference_dir / DEFAULT_PRINTER
+    default_type_group_path = args.reference_dir / DEFAULT_TYPE_GROUP
+    out_path = args.out
 
     local_paper = _load_json(local_paper_path)
     default_printer = _load_json(default_printer_path)
@@ -557,11 +545,11 @@ def main() -> int:
 
     catalog = {
         "schema_version": 1,
-        "generator": "driver/scripts/generate_media_catalog.py",
+        "generator": GENERATOR,
         "sources": {
-            "local_paper": _render_source_path(local_paper_path, repo_root),
-            "default_printer": _render_source_path(default_printer_path, repo_root),
-            "default_type_group": _render_source_path(default_type_group_path, repo_root),
+            "local_paper": _describe_source(local_paper_path),
+            "default_printer": _describe_source(default_printer_path),
+            "default_type_group": _describe_source(default_type_group_path),
         },
         "summary": summary,
         "paper_pools": pools,

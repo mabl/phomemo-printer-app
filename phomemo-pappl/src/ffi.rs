@@ -1,6 +1,12 @@
 //! C-ABI types and exported functions.
 
 use std::ffi::{c_char, c_int, c_uint, c_void, CString};
+use std::num::NonZeroU8;
+
+use phomemo_protocol::bitmap::{GrayImage, MonoBitmap, Rotation};
+use phomemo_protocol::commands::{Density, LeftMargin, Speed};
+use phomemo_protocol::dither::{self, Algorithm};
+use phomemo_protocol::job::{Preamble, Raster};
 
 use crate::testpage;
 
@@ -123,17 +129,14 @@ const PAPPL_CONTENT_TEXT_AND_GRAPHIC: u32 = 0x10;
 ///    - text/text-and-graphic → Threshold (sharp edges)
 ///    - photo/graphic/auto → `FloydSteinberg`
 /// 3. Default: `None` (caller picks `FloydSteinberg`)
-unsafe fn resolve_dither_algorithm(
-    ops: &PhomemoOps,
-    options: *const c_void,
-) -> Option<phomemo_protocol::dither::Algorithm> {
+unsafe fn resolve_dither_algorithm(ops: &PhomemoOps, options: *const c_void) -> Option<Algorithm> {
     // Check explicit vendor option.
     if let Some(get_vendor) = ops.get_vendor_option {
         let key = c"phomemo-dither";
         let val = get_vendor(options, key.as_ptr());
         if !val.is_null() {
             if let Ok(s) = std::ffi::CStr::from_ptr(val).to_str() {
-                if let Some(algo) = phomemo_protocol::dither::Algorithm::from_name(s) {
+                if let Ok(algo) = s.parse() {
                     return Some(algo);
                 }
                 if s == "auto" {
@@ -149,7 +152,7 @@ unsafe fn resolve_dither_algorithm(
     if let Some(f) = ops.get_content_optimize {
         let content = f(options);
         if content & (PAPPL_CONTENT_TEXT | PAPPL_CONTENT_TEXT_AND_GRAPHIC) != 0 {
-            return Some(phomemo_protocol::dither::Algorithm::Threshold);
+            return Some(Algorithm::Threshold);
         }
     }
 
@@ -163,15 +166,15 @@ enum CompressionMode {
     Off,
 }
 
-const fn orientation_transform(value: c_int) -> phomemo_protocol::bitmap::OrientationTransform {
+const fn orientation_rotation(value: c_int) -> Rotation {
     match value {
         // 4 = landscape (90° counter-clockwise)
-        4 => phomemo_protocol::bitmap::OrientationTransform::Rotate90Ccw,
+        4 => Rotation::CounterClockwise,
         // 5 = reverse-landscape (90° clockwise)
-        5 => phomemo_protocol::bitmap::OrientationTransform::Rotate90Cw,
+        5 => Rotation::Clockwise,
         // 6 = reverse-portrait (180°)
-        6 => phomemo_protocol::bitmap::OrientationTransform::Rotate180,
-        _ => phomemo_protocol::bitmap::OrientationTransform::None,
+        6 => Rotation::HalfTurn,
+        _ => Rotation::Identity,
     }
 }
 
@@ -249,55 +252,48 @@ pub unsafe extern "C" fn pm_start_job(
     };
 
     // Reference mobile-app sequence: LEFT_MARGIN → ESC @ → (settle) → ...
-    // Keep LEFT_MARGIN before reset to match validated app ordering.
     let head_w = ctx.head_width_bytes;
     let Some(bpl_fn) = ops.bytes_per_line else {
         log_msg(ops, job, 3, "pm_start_job: missing bytes_per_line callback");
         return false;
     };
     let raster_w = usize::try_from(bpl_fn(options)).unwrap_or(usize::MAX);
-    let bmp_w = raster_w.min(head_w);
-    let margin = head_w.saturating_sub(bmp_w);
-
-    // Build the preamble: LEFT_MARGIN → density → speed → tracking → ESC @.
-    // This keeps the margin-first flow aligned with validated reference behavior.
-    let mut preamble: Vec<u8> = Vec::new();
-
-    if margin > 0 {
-        let margin_u8 = u8::try_from(margin).unwrap_or(u8::MAX);
-        preamble.extend_from_slice(&phomemo_protocol::commands::set_left_margin(margin_u8));
-    }
+    let Ok(left_margin) = LeftMargin::for_width(head_w, raster_w) else {
+        log_msg(ops, job, 3, "pm_start_job: left margin exceeds one byte");
+        return false;
+    };
 
     // Density (1-15, from PAPPL darkness setting)
     let darkness = ops.get_print_darkness.map_or(0, |f| f(options));
-    if darkness > 0 {
-        let darkness_u8 = u8::try_from(darkness.clamp(1, 15)).unwrap_or(15);
-        preamble.extend_from_slice(&phomemo_protocol::commands::set_density(darkness_u8));
-    }
+    let density = if darkness > 0 {
+        u8::try_from(darkness.clamp(1, 15))
+            .ok()
+            .and_then(Density::new)
+    } else {
+        None
+    };
 
     // Speed (PAPPL speed in hundredths of mm/sec → Phomemo level 1-6)
     let speed = ops.get_print_speed.map_or(0, |f| f(options));
-    if speed > 0 {
-        let level = u8::try_from((speed / 2540).clamp(1, 6)).unwrap_or(6);
-        preamble.extend_from_slice(&phomemo_protocol::commands::set_speed(level));
-    }
+    let speed = if speed > 0 {
+        u8::try_from((speed / 2540).clamp(1, 6))
+            .ok()
+            .and_then(Speed::new)
+    } else {
+        None
+    };
 
     // Media tracking
-    let tracking = ops.get_media_tracking.map_or(0, |f| f(options));
-    match tracking {
-        0x0001 => preamble.extend_from_slice(&phomemo_protocol::commands::set_media_tracking(
-            phomemo_protocol::commands::MediaTracking::Continuous,
-        )),
-        0x0002 => preamble.extend_from_slice(&phomemo_protocol::commands::set_media_tracking(
-            phomemo_protocol::commands::MediaTracking::Gap,
-        )),
-        0x0004 => preamble.extend_from_slice(&phomemo_protocol::commands::set_media_tracking(
-            phomemo_protocol::commands::MediaTracking::Mark,
-        )),
-        _ => {}
-    }
+    let tracking =
+        crate::media_tracking_from_pappl(ops.get_media_tracking.map_or(0, |f| f(options)));
 
-    preamble.extend_from_slice(&phomemo_protocol::commands::reset());
+    let preamble = Preamble {
+        left_margin,
+        density,
+        speed,
+        tracking,
+    }
+    .encode();
 
     let wrote = write_fn(device, preamble.as_ptr(), preamble.len());
     if wrote < 0 {
@@ -414,10 +410,10 @@ pub unsafe extern "C" fn pm_end_page(
     let dither_algo = resolve_dither_algorithm(ops, options);
 
     // --- Convert to 1bpp if input is grayscale ---
-    let (mono_data, mono_width_px) = if bpp >= 8 {
+    let bitmap = if bpp >= 8 {
         // Input is 8-bit grayscale: width_bytes == width_px.
         // Dither to 1bpp.
-        let algo = dither_algo.unwrap_or(phomemo_protocol::dither::Algorithm::FloydSteinberg);
+        let algo = dither_algo.unwrap_or(Algorithm::FloydSteinberg);
         let pixel_w = width_px.min(head_w * 8);
         // Collect grayscale pixels (one byte per pixel, clipped to head width).
         let mut gray_pixels = Vec::with_capacity(pixel_w * ctx.height);
@@ -438,38 +434,46 @@ pub unsafe extern "C" fn pm_end_page(
             &format!("Dithering {pixel_w}x{} with {algo:?}", ctx.height),
         );
 
-        let dithered = phomemo_protocol::dither::apply(algo, &gray_pixels, pixel_w, ctx.height);
-        (dithered, pixel_w)
+        match GrayImage::new(pixel_w, ctx.height, gray_pixels) {
+            Ok(gray) => dither::dither(&gray, algo),
+            Err(err) => {
+                log_msg(ops, job, 3, &format!("pm_end_page: {err}"));
+                return false;
+            }
+        }
     } else {
-        // Input is already 1bpp packed.
+        // Input is already 1bpp packed: clip it to the head width.
         let bmp_w = src_w.min(head_w);
         let pixel_w = width_px.min(bmp_w * 8);
-        let mut packed = Vec::with_capacity(bmp_w * ctx.height);
-        for row in 0..ctx.height {
-            let row_start = row * src_w;
-            packed.extend_from_slice(&ctx.page[row_start..row_start + bmp_w]);
+        let Some(src_px) = src_w.checked_mul(8) else {
+            log_msg(ops, job, 3, "pm_end_page: raster width overflows");
+            return false;
+        };
+        match MonoBitmap::new(src_px, ctx.height, std::mem::take(&mut ctx.page)) {
+            Ok(bitmap) => bitmap.clip_width(pixel_w),
+            Err(err) => {
+                log_msg(ops, job, 3, &format!("pm_end_page: {err}"));
+                return false;
+            }
         }
-        (packed, pixel_w)
     };
 
     // --- Orientation transform (on the packed 1bpp data) ---
     let orientation = ops.get_orientation.map_or(0, |f| f(options));
-    let transform = orientation_transform(orientation);
-    let (pixel_data, transformed_width_px, transformed_height) =
-        phomemo_protocol::bitmap::transform_packed_mono(
-            &mono_data,
-            mono_width_px,
-            ctx.height,
-            transform,
-        );
-    let bmp_w = transformed_width_px.div_ceil(8);
-    let h = u16::try_from(transformed_height).unwrap_or(u16::MAX);
+    let bitmap = bitmap.rotate(orientation_rotation(orientation));
+    let uncompressed = match Raster::uncompressed(&bitmap) {
+        Ok(raster) => raster,
+        Err(err) => {
+            log_msg(ops, job, 3, &format!("pm_end_page: {err}"));
+            return false;
+        }
+    };
 
     let compression_mode = resolve_compression_mode(ops, options);
     let supports_compression = ops.model_supports_compression.is_none_or(|f| f(job));
 
-    let use_compression = if compression_mode == CompressionMode::Off {
-        None
+    let raster = if compression_mode == CompressionMode::Off {
+        uncompressed
     } else if !supports_compression {
         if compression_mode == CompressionMode::On {
             log_msg(
@@ -479,61 +483,41 @@ pub unsafe extern "C" fn pm_end_page(
                 "Compression forced on but model does not support it; using raw bitmap",
             );
         }
-        None
+        uncompressed
     } else {
-        match phomemo_protocol::compress::compress_blocks(&pixel_data) {
+        match Raster::compressed(&bitmap) {
             Ok(compressed)
                 if compression_mode == CompressionMode::On
-                    || compressed.len() < pixel_data.len() =>
+                    || compressed.payload_len() < uncompressed.payload_len() =>
             {
                 // Log compression ratio (precision loss acceptable for log message).
                 #[allow(clippy::cast_precision_loss)]
-                let ratio = 100.0 * (compressed.len() as f64) / (pixel_data.len().max(1) as f64);
+                let ratio = 100.0 * (compressed.payload_len() as f64)
+                    / (uncompressed.payload_len().max(1) as f64);
                 log_msg(
                     ops,
                     job,
                     0,
                     &format!(
                         "LZO: {}B -> {}B ({ratio:.0}%) [{compression_mode:?}]",
-                        pixel_data.len(),
-                        compressed.len(),
+                        uncompressed.payload_len(),
+                        compressed.payload_len(),
                     ),
                 );
-                Some(compressed)
+                compressed
             }
-            Ok(_) => None,
+            Ok(_) => uncompressed,
             Err(err) => {
                 log_msg(ops, job, 1, &format!("LZO compression failed: {err}"));
-                None
+                uncompressed
             }
         }
     };
 
-    // --- Assemble the wire packet ---
-    let mut out: Vec<u8> = Vec::new();
-
-    // 1. PRINT_MULTI (copy count)
+    // --- Assemble the wire packet: copies, then the raster ---
     let copies = ops.get_copies.map_or(1, |f| f(options));
-    let copies_u8 = u8::try_from(copies.max(1)).unwrap_or(u8::MAX);
-    out.extend_from_slice(&phomemo_protocol::commands::set_copies(copies_u8));
-
-    if let Some(ref compressed) = use_compression {
-        // Compressed flow: enable compression → header → compressed blocks → disable
-        out.extend_from_slice(&phomemo_protocol::commands::set_compression(true));
-        out.extend_from_slice(&phomemo_protocol::commands::bitmap_header_mono(
-            u16::try_from(bmp_w).unwrap_or(u16::MAX),
-            h,
-        ));
-        out.extend_from_slice(compressed);
-        out.extend_from_slice(&phomemo_protocol::commands::set_compression(false));
-    } else {
-        // Uncompressed flow: header → raw pixel data
-        out.extend_from_slice(&phomemo_protocol::commands::bitmap_header_mono(
-            u16::try_from(bmp_w).unwrap_or(u16::MAX),
-            h,
-        ));
-        out.extend_from_slice(&pixel_data);
-    }
+    let copies = NonZeroU8::new(u8::try_from(copies).unwrap_or(u8::MAX)).unwrap_or(NonZeroU8::MIN);
+    let out = raster.encode(copies);
 
     let wrote = write_fn(device, out.as_ptr(), out.len());
     if wrote < 0 {
@@ -581,25 +565,10 @@ mod tests {
 
     #[test]
     fn orientation_mapping_matches_ipp_values() {
-        assert_eq!(
-            orientation_transform(0),
-            phomemo_protocol::bitmap::OrientationTransform::None
-        );
-        assert_eq!(
-            orientation_transform(3),
-            phomemo_protocol::bitmap::OrientationTransform::None
-        );
-        assert_eq!(
-            orientation_transform(4),
-            phomemo_protocol::bitmap::OrientationTransform::Rotate90Ccw
-        );
-        assert_eq!(
-            orientation_transform(5),
-            phomemo_protocol::bitmap::OrientationTransform::Rotate90Cw
-        );
-        assert_eq!(
-            orientation_transform(6),
-            phomemo_protocol::bitmap::OrientationTransform::Rotate180
-        );
+        assert_eq!(orientation_rotation(0), Rotation::Identity);
+        assert_eq!(orientation_rotation(3), Rotation::Identity);
+        assert_eq!(orientation_rotation(4), Rotation::CounterClockwise);
+        assert_eq!(orientation_rotation(5), Rotation::Clockwise);
+        assert_eq!(orientation_rotation(6), Rotation::HalfTurn);
     }
 }

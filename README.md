@@ -25,21 +25,21 @@ Without Nix you need:
 
 ## Media catalog generation
 
-The driver reads a normalized media catalog generated from reference media
-definition JSON files.
+The driver reads a normalized media catalog generated from the media
+definitions bundled with the Print Master Android app: `localPaper.json`,
+`DefaultPrinter.json` and `DefaultTypeGroup.json` from the APK's `assets/`
+directory.
 
-Regenerate it after updating those inputs:
+Regenerate it after updating those inputs, passing the directory that holds
+them:
 
 ```bash
-python scripts/generate_media_catalog.py \
-  --local-paper ../reference-data/localPaper.json \
-  --default-printer ../reference-data/DefaultPrinter.json \
-  --default-type-group ../reference-data/DefaultTypeGroup.json
+python3 scripts/generate_media_catalog.py --reference-dir path/to/assets
 ```
 
-Generated file:
-
-- `phomemo-protocol/data/media_catalog.json`
+The output defaults to `phomemo-protocol/data/media_catalog.json` (override
+with `--out`); it records each input's file name and SHA-256, not its local
+path.
 
 ## Run locally
 

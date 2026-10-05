@@ -19,9 +19,34 @@ pub use ffi::*;
 use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::sync::OnceLock;
 
+use phomemo_protocol::commands::{Command, Query};
+use phomemo_protocol::media::{self, MediaPreset, MediaTracking, PaperPool};
+use phomemo_protocol::model;
+use phomemo_protocol::responses::{BatteryStatus, Decoder, Response};
+
 const PAPPL_MEDIA_TRACKING_CONTINUOUS: c_uint = 0x0001;
 const PAPPL_MEDIA_TRACKING_GAP: c_uint = 0x0002;
 const PAPPL_MEDIA_TRACKING_MARK: c_uint = 0x0004;
+
+/// PAPPL media-tracking bit for a tracking mode. PAPPL has no card mode;
+/// card stock is gap-tracked from PAPPL's point of view.
+const fn pappl_tracking_flag(tracking: MediaTracking) -> c_uint {
+    match tracking {
+        MediaTracking::Continuous => PAPPL_MEDIA_TRACKING_CONTINUOUS,
+        MediaTracking::Gap | MediaTracking::Card => PAPPL_MEDIA_TRACKING_GAP,
+        MediaTracking::Mark => PAPPL_MEDIA_TRACKING_MARK,
+    }
+}
+
+/// Tracking mode for a single PAPPL media-tracking bit.
+pub(crate) const fn media_tracking_from_pappl(flag: c_uint) -> Option<MediaTracking> {
+    match flag {
+        PAPPL_MEDIA_TRACKING_CONTINUOUS => Some(MediaTracking::Continuous),
+        PAPPL_MEDIA_TRACKING_GAP => Some(MediaTracking::Gap),
+        PAPPL_MEDIA_TRACKING_MARK => Some(MediaTracking::Mark),
+        _ => None,
+    }
+}
 
 fn usize_to_isize_or_neg1(value: usize) -> isize {
     isize::try_from(value).unwrap_or(-1)
@@ -53,7 +78,7 @@ pub struct ModelInfoC {
 /// Build the static model table once. Each model gets its strings
 /// leaked into `'static` `CStrings` so the pointers are always valid.
 fn build_model_table() -> Vec<ModelInfoC> {
-    phomemo_protocol::model::all_models()
+    model::all()
         .iter()
         .map(|m| {
             // Leak CStrings so pointers live forever (process lifetime).
@@ -71,7 +96,7 @@ fn build_model_table() -> Vec<ModelInfoC> {
                 driver_name: driver.into_raw().cast_const(),
                 device_id: devid.into_raw().cast_const(),
                 dpi: m.dpi,
-                max_width_bytes: m.max_width_bytes,
+                max_width_bytes: m.max_width_bytes(),
                 max_width_px: m.max_width_px,
                 has_cutter: m.has_cutter,
                 supports_compression: m.supports_compression,
@@ -197,52 +222,55 @@ fn head_width_hundredths_mm(max_width_px: u16, dpi: u16) -> u32 {
     (px * 2540 + (dpi / 2)) / dpi
 }
 
-fn fallback_media_for_model(max_width_px: u16, dpi: u16) -> phomemo_protocol::media::MediaPreset {
+fn fallback_media_for_model(max_width_px: u16, dpi: u16) -> MediaPreset {
     let width_hundredths = head_width_hundredths_mm(max_width_px, dpi).max(100);
     #[allow(clippy::cast_precision_loss)]
     let width_mm = width_hundredths as f32 / 100.0;
     let width_mm_label = (width_hundredths + 50) / 100;
 
-    phomemo_protocol::media::MediaPreset {
+    MediaPreset {
         size_name: format!("om_{width_mm_label}x0mm_{width_mm_label}x0mm"),
         width_mm,
         length_mm: 0.0,
-        tracking_default: phomemo_protocol::media::Tracking::Continuous,
+        tracking_default: MediaTracking::Continuous,
         tracking_supported: vec![
-            phomemo_protocol::media::Tracking::Continuous,
-            phomemo_protocol::media::Tracking::Gap,
-            phomemo_protocol::media::Tracking::Mark,
+            MediaTracking::Continuous,
+            MediaTracking::Gap,
+            MediaTracking::Mark,
         ],
     }
 }
 
-fn media_for_model(model_name: &str) -> Vec<phomemo_protocol::media::MediaPreset> {
-    let media = phomemo_protocol::media::media_for_printer_type(model_name);
-    if !media.is_empty() {
-        return media;
-    }
-
-    phomemo_protocol::model::lookup(model_name).map_or_else(Vec::new, |model| {
-        phomemo_protocol::media::media_for_printer_type(model.series)
-    })
+/// Paper pools to try for a model: its own printer type, then its series.
+fn paper_pools_for_model(model_name: &str) -> impl Iterator<Item = &'static PaperPool> + '_ {
+    std::iter::once(media::paper_pool(model_name))
+        .chain(std::iter::once_with(move || {
+            model::lookup(model_name).and_then(|model| media::paper_pool(model.series))
+        }))
+        .flatten()
 }
 
-fn default_media_for_model(model_name: &str) -> Option<phomemo_protocol::media::MediaPreset> {
-    phomemo_protocol::media::default_media_for_printer_type(model_name).or_else(|| {
-        phomemo_protocol::model::lookup(model_name)
-            .and_then(|model| phomemo_protocol::media::default_media_for_printer_type(model.series))
-    })
+fn media_for_model(model_name: &str) -> &'static [MediaPreset] {
+    paper_pools_for_model(model_name)
+        .map(|pool| pool.media.as_slice())
+        .find(|media| !media.is_empty())
+        .unwrap_or_default()
+}
+
+fn default_media_for_model(model_name: &str) -> Option<&'static MediaPreset> {
+    paper_pools_for_model(model_name).find_map(PaperPool::default_media)
 }
 
 fn tracking_mask_for_model(model_name: &str) -> c_uint {
-    let mask = phomemo_protocol::media::tracking_supported_mask(model_name);
-    if mask != 0 {
-        return mask;
-    }
-
-    phomemo_protocol::model::lookup(model_name).map_or(0, |model| {
-        phomemo_protocol::media::tracking_supported_mask(model.series)
-    })
+    paper_pools_for_model(model_name)
+        .map(|pool| {
+            pool.media
+                .iter()
+                .flat_map(|preset| &preset.tracking_supported)
+                .fold(0, |mask, &tracking| mask | pappl_tracking_flag(tracking))
+        })
+        .find(|&mask| mask != 0)
+        .unwrap_or(0)
 }
 
 fn build_model_media_table() -> std::collections::BTreeMap<String, ModelMedia> {
@@ -255,31 +283,32 @@ fn build_model_media_table() -> std::collections::BTreeMap<String, ModelMedia> {
             .to_string();
         let fallback = fallback_media_for_model(model.max_width_px, model.dpi);
 
-        let mut media = media_for_model(&model_name);
-        if media.is_empty() {
-            media.push(fallback.clone());
-        }
+        let catalog_media = media_for_model(&model_name);
+        let media = if catalog_media.is_empty() {
+            std::slice::from_ref(&fallback)
+        } else {
+            catalog_media
+        };
 
         let mut names = Vec::new();
         let mut tracking = Vec::new();
-        for entry in &media {
+        for entry in media {
             if let Ok(c_name) = CString::new(entry.size_name.as_str()) {
                 names.push(c_name);
-                tracking.push(entry.tracking_default.pappl_flag());
+                tracking.push(pappl_tracking_flag(entry.tracking_default));
             }
         }
 
         if names.is_empty() {
             if let Ok(c_name) = CString::new(fallback.size_name.as_str()) {
                 names.push(c_name);
-                tracking.push(fallback.tracking_default.pappl_flag());
-                media.push(fallback.clone());
+                tracking.push(pappl_tracking_flag(fallback.tracking_default));
             }
         }
 
         let default = default_media_for_model(&model_name)
-            .or_else(|| media.first().cloned())
-            .unwrap_or(fallback);
+            .or_else(|| media.first())
+            .unwrap_or(&fallback);
 
         map.insert(
             model_name,
@@ -288,8 +317,8 @@ fn build_model_media_table() -> std::collections::BTreeMap<String, ModelMedia> {
                 tracking,
                 default_width: default.width_hundredths_mm(),
                 default_length: default.length_hundredths_mm(),
-                default_size_name: default.size_name,
-                default_tracking: default.tracking_default.pappl_flag(),
+                default_size_name: default.size_name.clone(),
+                default_tracking: pappl_tracking_flag(default.tracking_default),
             },
         );
     }
@@ -400,7 +429,7 @@ pub unsafe extern "C" fn pm_driver_defaults(
         let fallback = fallback_media_for_model(model.max_width_px, model.dpi);
         d.default_width = fallback.width_hundredths_mm();
         d.default_length = fallback.length_hundredths_mm();
-        d.default_tracking = fallback.tracking_default.pappl_flag();
+        d.default_tracking = pappl_tracking_flag(fallback.tracking_default);
         fill_c_str(&mut d.default_size_name, &fallback.size_name);
     }
 
@@ -457,8 +486,9 @@ pub unsafe extern "C" fn pm_media_tracking_for_size(
     };
 
     let model_name = CStr::from_ptr(model.name).to_str().unwrap_or_default();
-    phomemo_protocol::media::tracking_for_size_name(model_name, size)
-        .map_or(0, phomemo_protocol::media::Tracking::pappl_flag)
+    media::paper_pool(model_name)
+        .and_then(|pool| pool.find(size))
+        .map_or(0, |preset| pappl_tracking_flag(preset.tracking_default))
 }
 
 // ---------------------------------------------------------------------------
@@ -616,12 +646,12 @@ impl StatusState {
     }
 }
 
-fn apply_status_response(
-    state: &mut StatusState,
-    response: &phomemo_protocol::responses::Response,
-) -> Option<i32> {
-    use phomemo_protocol::responses::{BatteryStatus, Response};
-
+fn apply_status_response(state: &mut StatusState, response: &Response) -> Option<i32> {
+    // An undocumented command byte may be line noise: it is no sign that
+    // the printer answered.
+    if matches!(response, Response::Unknown { .. }) {
+        return None;
+    }
     state.saw_response = true;
     match response {
         Response::Cover { closed } => {
@@ -803,11 +833,10 @@ pub unsafe extern "C" fn pm_bt_open(
     let drained = bt::rfcomm::drain(guard.conn());
     let battery = std::sync::atomic::AtomicI32::new(-1);
     if !drained.is_empty() {
-        for resp in phomemo_protocol::responses::parse_all(&drained) {
-            if let phomemo_protocol::responses::Response::Battery(
-                phomemo_protocol::responses::BatteryStatus::Level(pct),
-            ) = resp
-            {
+        let mut decoder = Decoder::new();
+        decoder.extend_from_slice(&drained);
+        for resp in decoder.responses() {
+            if let Response::Battery(BatteryStatus::Level(pct)) = resp {
                 battery.store(i32::from(pct), std::sync::atomic::Ordering::Relaxed);
             }
         }
@@ -938,11 +967,8 @@ pub unsafe extern "C" fn pm_bt_status(handle: *mut BtConnectionHandle) -> c_uint
     let read_timeout = std::time::Duration::from_millis(500);
     let prev_timeout = bt::rfcomm::set_recv_timeout(conn, read_timeout);
 
-    let query_packets: [Vec<u8>; 3] = [
-        phomemo_protocol::commands::query_cover(),
-        phomemo_protocol::commands::query_paper(),
-        phomemo_protocol::commands::query_overheat(),
-    ];
+    let query_packets = [Query::Cover, Query::Paper, Query::Temperature]
+        .map(|query| Command::Query(query).encode());
 
     let mut best_partial: Option<StatusState> = None;
     let mut had_transport_error = false;
@@ -961,7 +987,7 @@ pub unsafe extern "C" fn pm_bt_status(handle: *mut BtConnectionHandle) -> c_uint
         }
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        let mut collected = Vec::new();
+        let mut decoder = Decoder::new();
         let mut status = StatusState::default();
 
         while std::time::Instant::now() < deadline && !status.is_complete() {
@@ -972,16 +998,10 @@ pub unsafe extern "C" fn pm_bt_status(handle: *mut BtConnectionHandle) -> c_uint
                     had_transport_error = true;
                     break;
                 }
-                Ok(n) => collected.extend_from_slice(&buf[..n]),
+                Ok(n) => decoder.extend_from_slice(&buf[..n]),
             }
 
-            let (responses, consumed) =
-                phomemo_protocol::responses::parse_all_resilient(&collected);
-            if consumed > 0 {
-                collected.drain(..consumed);
-            }
-
-            for response in responses {
+            for response in decoder.responses() {
                 if let Some(level) = apply_status_response(&mut status, &response) {
                     h.battery_level
                         .store(level, std::sync::atomic::Ordering::Relaxed);
@@ -1068,10 +1088,7 @@ mod tests {
         assert_eq!(media.size_name, "om_72x0mm_72x0mm");
         assert_eq!(media.width_hundredths_mm(), 7207);
         assert_eq!(media.length_hundredths_mm(), 0);
-        assert_eq!(
-            media.tracking_default,
-            phomemo_protocol::media::Tracking::Continuous
-        );
+        assert_eq!(media.tracking_default, MediaTracking::Continuous);
     }
 
     #[test]
@@ -1104,14 +1121,22 @@ mod tests {
     }
 
     #[test]
-    fn status_apply_response_maps_core_reasons() {
-        use phomemo_protocol::responses::Response;
-
+    fn status_ignores_undocumented_frames() {
         let mut state = StatusState::default();
-        let battery = apply_status_response(
-            &mut state,
-            &Response::Battery(phomemo_protocol::responses::BatteryStatus::Level(7)),
+        assert_eq!(
+            apply_status_response(&mut state, &Response::Unknown { cmd: 0x99 }),
+            None
         );
+        assert!(!state.saw_response);
+        let reasons = finalize_status_state(state, false);
+        assert_eq!(reasons & PAPPL_PREASON_OFFLINE, PAPPL_PREASON_OFFLINE);
+    }
+
+    #[test]
+    fn status_apply_response_maps_core_reasons() {
+        let mut state = StatusState::default();
+        let battery =
+            apply_status_response(&mut state, &Response::Battery(BatteryStatus::Level(7)));
         assert_eq!(battery, Some(7));
         assert_eq!(
             state.reasons & PAPPL_PREASON_MARKER_SUPPLY_LOW,

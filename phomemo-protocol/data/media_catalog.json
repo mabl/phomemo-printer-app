@@ -1,10 +1,19 @@
 {
   "schema_version": 1,
-  "generator": "driver/scripts/generate_media_catalog.py",
+  "generator": "scripts/generate_media_catalog.py",
   "sources": {
-    "local_paper": "reference-data/localPaper.json",
-    "default_printer": "reference-data/DefaultPrinter.json",
-    "default_type_group": "reference-data/DefaultTypeGroup.json"
+    "local_paper": {
+      "file": "localPaper.json",
+      "sha256": "2f0b01a6aecd2c7c3f09f04893d61b39299079a340bb88810090f44dec46faf3"
+    },
+    "default_printer": {
+      "file": "DefaultPrinter.json",
+      "sha256": "f532fb6c83d9b9a5dd7e058a35c6e89d29c731da58fc57503b7fffd5a47f8997"
+    },
+    "default_type_group": {
+      "file": "DefaultTypeGroup.json",
+      "sha256": "0d30cc61b3195b0de0cadedbcb3b695a6b49b595d7a3f673c81f6f7496e66b79"
+    }
   },
   "summary": {
     "local_paper_entries": 81,

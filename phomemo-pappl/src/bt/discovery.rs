@@ -23,7 +23,7 @@ fn model_aliases() -> &'static [(String, &'static str)] {
     static ALIASES: OnceLock<Vec<(String, &'static str)>> = OnceLock::new();
 
     ALIASES.get_or_init(|| {
-        let mut aliases = phomemo_protocol::model::all_models()
+        let mut aliases = phomemo_protocol::model::all()
             .iter()
             .map(|model| (model.name.to_ascii_uppercase(), model.name))
             .collect::<Vec<_>>();
@@ -283,7 +283,7 @@ mod tests {
     fn test_resolve_model_from_sn() {
         assert_eq!(resolve_model_name("Q198G5949230062"), "M220");
         assert_eq!(resolve_model_name("M220-A4B3"), "M220");
-        assert_eq!(resolve_model_name("Phomemo P3100"), "P3100");
+        assert_eq!(resolve_model_name("Phomemo D30"), "D30");
         assert_eq!(resolve_model_name("UnknownDevice"), "UnknownDevice");
     }
 
