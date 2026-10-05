@@ -15,7 +15,7 @@ use std::slice;
 
 use libc::ssize_t;
 
-use super::{Error, Host, Job, Log, PrintOptions, RasterHeader};
+use super::{Error, Host, Job, Log, PrintOptions, RasterHeader, Sent};
 use crate::models::{Model, PmModel};
 use crate::pappl::{LogLevel, PapplDevice, PapplJob, PapplPrOptions};
 
@@ -346,6 +346,37 @@ pub unsafe extern "C" fn pm_job_end_page(
             state.end_page(host)
         })
     }
+}
+
+/// What a job has sent to the printer, which reports each page once
+/// printed: what the Bluetooth backend waits for.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PmJobSent {
+    /// Pages sent.
+    pub pages: c_uint,
+    /// The longest page's length on paper, in hundredths of a millimetre.
+    pub longest_page: c_uint,
+}
+
+/// What the job has sent to the printer so far; nothing for NULL.
+///
+/// # Safety
+///
+/// `ctx` must be NULL or a live state from [`pm_job_start`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pm_job_sent(ctx: *const PmJob) -> PmJobSent {
+    // SAFETY: the caller passes NULL or a live state.
+    unsafe { ctx.as_ref() }.map_or_else(PmJobSent::default, |PmJob(state)| {
+        let Sent {
+            pages,
+            longest_page,
+        } = state.sent();
+        PmJobSent {
+            pages,
+            longest_page,
+        }
+    })
 }
 
 /// Finish the job, for PAPPL's `rendjob_cb`, and free its state.

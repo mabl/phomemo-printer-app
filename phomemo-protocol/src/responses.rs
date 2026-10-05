@@ -21,8 +21,10 @@ pub enum Response {
         /// The head is too hot to print (`A9`).
         overheated: bool,
     },
-    /// `1A 04 nn`: battery state, pushed unsolicited (on connection, among
-    /// others).
+    /// `1A 04 nn`: battery state, the answer to
+    /// [`Query::Battery`](crate::commands::Query::Battery). Some models are
+    /// said to push it unsolicited as well (`re/protocol/responses.md`); an
+    /// M220 on firmware 3.0.1 does not.
     Battery(BatteryStatus),
     /// `1A 05 nn`: cover state.
     Cover {

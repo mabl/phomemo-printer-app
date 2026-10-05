@@ -8,11 +8,12 @@
 //! of misbehaving at run time.
 //!
 //! The PAPPL types the driver only ever handles by pointer are declared here
-//! as opaque stand-ins, which cbindgen exports under PAPPL's own names
+//! as opaque stand-ins, and the PAPPL callback types it calls as aliases;
+//! cbindgen exports both under PAPPL's own names
 //! (`phomemo-pappl/cbindgen.toml`), so the C side passes its pointers without
 //! casts.
 
-use std::ffi::{c_int, c_uint};
+use std::ffi::{c_char, c_int, c_uint, c_void};
 use std::marker::{PhantomData, PhantomPinned};
 
 use phomemo_protocol::media::MediaTracking;
@@ -88,6 +89,27 @@ pub struct PapplPrOptions {
     _opaque: [u8; 0],
     _marker: PhantomData<(*mut u8, PhantomPinned)>,
 }
+
+/// PAPPL's `pappl_device_cb_t`, which may be NULL: called by a device list
+/// callback with a device's description, URI and IEEE 1284 ID, and the
+/// caller's data; returns `true` to stop listing.
+///
+/// cbindgen:no-export
+pub type PapplDeviceCb = Option<
+    unsafe extern "C" fn(
+        device_info: *const c_char,
+        device_uri: *const c_char,
+        device_id: *const c_char,
+        data: *mut c_void,
+    ) -> bool,
+>;
+
+/// PAPPL's `pappl_deverror_cb_t`, which may be NULL: called with an error
+/// message and the caller's data.
+///
+/// cbindgen:no-export
+pub type PapplDeverrorCb =
+    Option<unsafe extern "C" fn(message: *const c_char, err_data: *mut c_void)>;
 
 /// Severity of a job log message, as `pappl_loglevel_t` grades it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

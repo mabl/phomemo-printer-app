@@ -38,8 +38,8 @@ mod testpage;
 
 // The types and constants of the C interface. Re-exporting them makes them
 // the crate's public API, so fields only C reads are not dead code.
-pub use crate::bt::ffi::BtConnectionHandle;
+pub use crate::bt::ffi::PmBtConnection;
 pub use crate::defaults::{PmDriverDefaults, PmMediaDefault};
 pub use crate::models::PmModel;
 pub use crate::pappl::*;
-pub use crate::raster::ffi::{PmJob, PmOps, PmOptions};
+pub use crate::raster::ffi::{PmJob, PmJobSent, PmOps, PmOptions};

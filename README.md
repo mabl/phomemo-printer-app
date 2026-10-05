@@ -63,6 +63,8 @@ Override runtime values with environment variables:
 - `PHOMEMO_LOG_LEVEL` (`debug|info|warn|error|fatal`)
 - `PHOMEMO_SPOOL_DIRECTORY`
 - `PHOMEMO_TLS_ONLY` (`0|1|true|false|yes|no`)
+- `PHOMEMO_BT_CHANNELS`: the RFCOMM channels to try, comma-separated
+  (default `1`); a device URI can name one with `?channel=N`
 
 ## Register with local CUPS
 
@@ -124,6 +126,14 @@ You can edit that file and restart the service to change listen/auth/log/spool s
   size and refuses a page without length ("Invalid media size"). Choose a
   label size for such jobs, e.g. `-o media=om_40x30mm_40x30mm`, or print
   through CUPS, which renders pages of a definite length.
+- `shutdown` returns at once, but the server exits only when PAPPL's main
+  loop next wakes, up to 30 seconds later. `SIGTERM` stops it at once.
+- Use one queue per printer. A Bluetooth printer takes one connection at a
+  time, so a second queue for the same address waits for the first one's
+  device for up to 5 seconds, stalling its web and IPP requests, and then
+  fails with "is another queue using the same printer?".
+- Raw jobs (`application/vnd.phomemo-raw`) end as soon as they are sent:
+  only raster jobs wait for the printer to report each page printed.
 
 ## Upgrading
 

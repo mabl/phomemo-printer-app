@@ -13,3 +13,5 @@ usize_is_size_t = true
 "PapplJob" = "pappl_job_t"
 "PapplDevice" = "pappl_device_t"
 "PapplPrOptions" = "pappl_pr_options_t"
+"PapplDeviceCb" = "pappl_device_cb_t"
+"PapplDeverrorCb" = "pappl_deverror_cb_t"

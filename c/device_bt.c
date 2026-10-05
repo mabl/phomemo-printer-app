@@ -1,126 +1,110 @@
 //
 // Phomemo Printer Application — Bluetooth SPP device backend.
 //
-// Registers the "btspp" URI scheme with PAPPL.  Delegates to Rust
-// FFI functions (pm_bt_*) for discovery, RFCOMM I/O, and status.
+// Registers the "btspp" URI scheme with PAPPL. The work is done in Rust
+// (pm_bt_*, phomemo-pappl/src/bt): each open device keeps a PmBtConnection
+// as its device data, which these callbacks hand back.
 //
 
 #include <pappl/pappl.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include "phomemo_pappl.h"
 
-// The generated header already declares pm_bt_* functions with the
-// correct types (BtConnectionHandle*, etc.), so no extern declarations
-// needed here — just use them directly.
+#define BT_SCHEME "btspp"
 
-// ---------------------------------------------------------------------------
-// list_cb — enumerate paired BT devices matching Phomemo printers
-// ---------------------------------------------------------------------------
+// Room for an error message from Rust.
+#define BT_MESSAGE_SIZE 256
 
-bool bt_list_cb(pappl_device_cb_t cb, void *data,
-                pappl_deverror_cb_t err_cb, void *err_data) {
-    bool found = pm_bt_list(cb, data, NULL, NULL);
-    if (!found && err_cb)
-        err_cb("No Phomemo Bluetooth devices found (BlueZ discovery may have timed out).", err_data);
-    return found;
-}
-
-// ---------------------------------------------------------------------------
-// open_cb — connect to a btspp:// URI
-// ---------------------------------------------------------------------------
-
-bool bt_open_cb(pappl_device_t *device, const char *device_uri,
-                const char *name) {
+static bool bt_open_cb(pappl_device_t *device, const char *device_uri,
+                       const char *name) {
     (void)name;
 
-    struct BtConnectionHandle *handle = pm_bt_open(device_uri, 5000);
-    if (!handle) {
-        papplDeviceError(device, "Failed to connect to %s", device_uri);
+    char message[BT_MESSAGE_SIZE];
+    PmBtConnection *connection = pm_bt_open(device_uri, message, sizeof(message));
+    if (!connection) {
+        papplDeviceError(device, "%s", message);
         return false;
     }
 
-    papplDeviceSetData(device, handle);
+    papplDeviceSetData(device, connection);
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// close_cb
-// ---------------------------------------------------------------------------
-
-void bt_close_cb(pappl_device_t *device) {
-    struct BtConnectionHandle *handle = papplDeviceGetData(device);
-    if (handle) {
-        pm_bt_close(handle);
-        papplDeviceSetData(device, NULL);
-    }
+static void bt_close_cb(pappl_device_t *device) {
+    pm_bt_close(papplDeviceGetData(device));
+    papplDeviceSetData(device, NULL);
 }
 
-// ---------------------------------------------------------------------------
-// read_cb — no timeout param; SO_RCVTIMEO set during open
-// ---------------------------------------------------------------------------
-
-ssize_t bt_read_cb(pappl_device_t *device, void *buffer, size_t bytes) {
-    struct BtConnectionHandle *handle = papplDeviceGetData(device);
-    if (!handle)
-        return -1;
-    return (ssize_t)pm_bt_read(handle, (uint8_t *)buffer, bytes);
+static ssize_t bt_read_cb(pappl_device_t *device, void *buffer, size_t bytes) {
+    return pm_bt_read(papplDeviceGetData(device), buffer, bytes);
 }
 
-// ---------------------------------------------------------------------------
-// write_cb — delegates to Rust 1024-byte chunked writer
-// ---------------------------------------------------------------------------
-
-ssize_t bt_write_cb(pappl_device_t *device, const void *buffer, size_t bytes) {
-    struct BtConnectionHandle *handle = papplDeviceGetData(device);
-    if (!handle)
-        return -1;
-    return (ssize_t)pm_bt_write(handle, (const uint8_t *)buffer, bytes);
+static ssize_t bt_write_cb(pappl_device_t *device, const void *buffer,
+                           size_t bytes) {
+    return pm_bt_write(papplDeviceGetData(device), buffer, bytes);
 }
 
-// ---------------------------------------------------------------------------
-// status_cb — query paper/cover/temperature via Rust
-// ---------------------------------------------------------------------------
-
-pappl_preason_t bt_status_cb(pappl_device_t *device) {
-    struct BtConnectionHandle *handle = papplDeviceGetData(device);
-    if (!handle)
-        return PAPPL_PREASON_OFFLINE;
-    return (pappl_preason_t)pm_bt_status(handle);
+static pappl_preason_t bt_status_cb(pappl_device_t *device) {
+    return (pappl_preason_t)pm_bt_status(papplDeviceGetData(device));
 }
 
-// ---------------------------------------------------------------------------
-// supplies_cb — report battery level
-// ---------------------------------------------------------------------------
-
-int bt_supplies_cb(pappl_device_t *device, int max_supplies,
-                   pappl_supply_t *supplies) {
-    if (max_supplies < 1 || !supplies)
+// The battery, as the one supply, once the printer has reported its level.
+static int bt_supplies_cb(pappl_device_t *device, int max_supplies,
+                          pappl_supply_t *supplies) {
+    int level = pm_bt_battery(papplDeviceGetData(device));
+    if (max_supplies < 1 || !supplies || level < 0)
         return 0;
-
-    struct BtConnectionHandle *handle = papplDeviceGetData(device);
-    int battery = handle ? pm_bt_battery(handle) : -1;
 
     memset(&supplies[0], 0, sizeof(supplies[0]));
     supplies[0].color = PAPPL_SUPPLY_COLOR_NO_COLOR;
     snprintf(supplies[0].description, sizeof(supplies[0].description), "Battery");
     supplies[0].is_consumed = true;
-    supplies[0].level = battery;  // 0-100 or -1 (unknown)
+    supplies[0].level = level;
     supplies[0].type = PAPPL_SUPPLY_TYPE_OTHER;
 
     return 1;
 }
 
-// ---------------------------------------------------------------------------
-// id_cb — return IEEE 1284 device ID string
-// ---------------------------------------------------------------------------
+static char *bt_id_cb(pappl_device_t *device, char *buffer, size_t bufsize) {
+    return pm_bt_device_id(papplDeviceGetData(device), buffer, bufsize) ? buffer : NULL;
+}
 
-char *bt_id_cb(pappl_device_t *device, char *buffer, size_t bufsize) {
-    struct BtConnectionHandle *handle = papplDeviceGetData(device);
-    const char *model = (handle) ? pm_bt_model_name(handle) : "";
-    if (model[0])
-        snprintf(buffer, bufsize, "MFG:Phomemo;MDL:%s;CMD:PHOMEMO;", model);
-    else
-        snprintf(buffer, bufsize, "MFG:Phomemo;CMD:PHOMEMO;");
-    return buffer;
+// Register the btspp scheme with PAPPL.
+void bt_add_scheme(void) {
+    papplDeviceAddScheme2(BT_SCHEME, PAPPL_DEVTYPE_CUSTOM_LOCAL,
+                          pm_bt_list, bt_open_cb, bt_close_cb,
+                          bt_read_cb, bt_write_cb, bt_status_cb,
+                          bt_supplies_cb, bt_id_cb);
+}
+
+// Whether the job prints over Bluetooth. Only a btspp device's data is a
+// PmBtConnection: any other scheme's belongs to its own backend. A
+// printer's device URI never changes.
+static bool bt_is_job_device(pappl_job_t *job) {
+    const char *uri = papplPrinterGetDeviceURI(papplJobGetPrinter(job));
+    return !strncasecmp(uri, BT_SCHEME ":", sizeof(BT_SCHEME ":") - 1);
+}
+
+// Prepare to send a job, if it prints over Bluetooth: take off reports left
+// over from an earlier job, so that they do not count towards this one.
+void bt_start_job(pappl_job_t *job, pappl_device_t *device) {
+    if (bt_is_job_device(job) && !pm_bt_discard_input(papplDeviceGetData(device)))
+        papplLogJob(job, PAPPL_LOGLEVEL_WARN, "The Bluetooth connection has failed.");
+}
+
+// Wait until the printer has printed what the job sent, if it prints over
+// Bluetooth: PAPPL closes the device when the job ends, which must not cut
+// off data still on its way. Logs the outcome; whether every page printed,
+// and true for any other device.
+bool bt_wait_printed(pappl_job_t *job, pappl_device_t *device, PmJobSent sent) {
+    if (sent.pages == 0 || !bt_is_job_device(job))
+        return true;
+
+    char message[BT_MESSAGE_SIZE];
+    bool printed = pm_bt_wait_printed(papplDeviceGetData(device), sent.pages,
+                                      sent.longest_page, message, sizeof(message));
+    papplLogJob(job, printed ? PAPPL_LOGLEVEL_INFO : PAPPL_LOGLEVEL_ERROR, "%s", message);
+    return printed;
 }

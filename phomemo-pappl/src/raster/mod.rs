@@ -181,11 +181,36 @@ impl From<io::Error> for Error {
     }
 }
 
+/// What a job has sent to the printer, which reports each page once it
+/// has printed it.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Sent {
+    /// Pages sent.
+    pub pages: u32,
+    /// The longest page's length on paper, in hundredths of a millimetre.
+    pub longest_page: u32,
+}
+
+impl Sent {
+    /// Count a page of `rows` rows at `dpi`.
+    fn add(&mut self, rows: usize, dpi: u16) {
+        let length = u64::try_from(rows)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(2540)
+            .div_ceil(u64::from(dpi.max(1)));
+        self.pages = self.pages.saturating_add(1);
+        self.longest_page = self
+            .longest_page
+            .max(u32::try_from(length).unwrap_or(u32::MAX));
+    }
+}
+
 /// The driver's state for one job.
 #[derive(Debug)]
 pub struct Job {
     model: &'static Model,
     page: Option<Page>,
+    sent: Sent,
     settle: Duration,
 }
 
@@ -196,6 +221,10 @@ impl Job {
         Self {
             model,
             page: None,
+            sent: Sent {
+                pages: 0,
+                longest_page: 0,
+            },
             settle: SETTLE,
         }
     }
@@ -213,6 +242,12 @@ impl Job {
             host,
         )?);
         Ok(())
+    }
+
+    /// What has been sent to the printer so far.
+    #[must_use]
+    pub const fn sent(&self) -> Sent {
+        self.sent
     }
 
     /// Bytes in each line of the current page, if one has been started.
@@ -275,7 +310,9 @@ impl Job {
                 },
             ),
         );
-        Ok(self.send(host, preamble, &raster)?)
+        self.send(host, preamble, &raster)?;
+        self.sent.add(bitmap.height(), self.model.info().dpi);
+        Ok(())
     }
 
     /// Send a page: its preamble, then, once the printer has settled, its
@@ -463,6 +500,31 @@ mod tests {
         print_page(&mut job, &mut host, |_| vec![255; 100]);
         // 100 dots pack into 13 bytes: 72 - 13.
         assert_eq!(host.written[..4], [0x1f, 0x11, 0x24, 59]);
+    }
+
+    #[test]
+    fn sent_pages_are_counted_with_the_longest() {
+        let mut job = job("M220");
+        let mut host = FakeHost {
+            options: gray_options(8, 240, PM_CSPACE_SW),
+            ..FakeHost::default()
+        };
+        assert_eq!(job.sent(), Sent::default());
+        print_page(&mut job, &mut host, |_| vec![0; 8]);
+        host.options = gray_options(8, 80, PM_CSPACE_SW);
+        print_page(&mut job, &mut host, |_| vec![0; 8]);
+        // 240 rows at 203 dpi: 30.03 mm, rounded up.
+        let sent = Sent {
+            pages: 2,
+            longest_page: 3003,
+        };
+        assert_eq!(job.sent(), sent);
+
+        // A canceled page is not sent.
+        job.start_page(&host).expect("page starts");
+        host.canceled = true;
+        assert!(job.end_page(&mut host).is_err());
+        assert_eq!(job.sent(), sent);
     }
 
     #[test]

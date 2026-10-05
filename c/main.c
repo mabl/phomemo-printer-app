@@ -30,18 +30,7 @@ extern const char *tp_autoadd_cb(const char *device_info,
 extern void media_printer_created(pappl_printer_t *printer, void *data);
 
 // Forward declarations from device_bt.c
-extern bool bt_list_cb(pappl_device_cb_t cb, void *data,
-    pappl_deverror_cb_t err_cb, void *err_data);
-extern bool bt_open_cb(pappl_device_t *device, const char *device_uri,
-    const char *name);
-extern void bt_close_cb(pappl_device_t *device);
-extern ssize_t bt_read_cb(pappl_device_t *device, void *buffer, size_t bytes);
-extern ssize_t bt_write_cb(pappl_device_t *device, const void *buffer,
-    size_t bytes);
-extern pappl_preason_t bt_status_cb(pappl_device_t *device);
-extern int bt_supplies_cb(pappl_device_t *device, int max_supplies,
-    pappl_supply_t *supplies);
-extern char *bt_id_cb(pappl_device_t *device, char *buffer, size_t bufsize);
+extern void bt_add_scheme(void);
 
 // ---------------------------------------------------------------------------
 // Driver table — built dynamically from the Rust model database
@@ -500,18 +489,7 @@ system_cb(int num_options, cups_option_t *options, void *data) {
         papplSystemSetAdminGroup(system, admin_group);
 
     // Register Bluetooth SPP device scheme
-    papplDeviceAddScheme2(
-        "btspp",
-        PAPPL_DEVTYPE_CUSTOM_LOCAL,
-        bt_list_cb,
-        bt_open_cb,
-        bt_close_cb,
-        bt_read_cb,
-        bt_write_cb,
-        bt_status_cb,
-        bt_supplies_cb,
-        bt_id_cb
-    );
+    bt_add_scheme();
 
     // Register printer drivers
     papplSystemSetPrinterDrivers(system,

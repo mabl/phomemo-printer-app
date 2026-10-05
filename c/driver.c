@@ -9,9 +9,13 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
-#include <stdint.h>
 #include <pappl/pappl.h>
 #include "phomemo_pappl.h"
+
+// From device_bt.c
+extern void bt_start_job(pappl_job_t *job, pappl_device_t *device);
+extern bool bt_wait_printed(pappl_job_t *job, pappl_device_t *device,
+                            PmJobSent sent);
 
 // Vendor attributes: the job options the Rust driver reads.
 #define TP_VENDOR_DITHER      "phomemo-dither"
@@ -93,6 +97,8 @@ static bool tp_rstartjob(pappl_job_t *job, pappl_pr_options_t *options,
 
     PmJob *ctx = pm_job_start(data.extension, &tp_ops, job, options, device);
     papplJobSetData(job, ctx);
+    if (ctx)
+        bt_start_job(job, device);
     return ctx != NULL;
 }
 
@@ -115,20 +121,6 @@ static bool tp_rendpage(pappl_job_t *job, pappl_pr_options_t *options,
     return pm_job_end_page(papplJobGetData(job), &tp_ops, job, options, device);
 }
 
-static bool tp_extract_print_result(const uint8_t *buffer, size_t len, bool *success) {
-    if (!buffer || !success || len < 3)
-        return false;
-
-    for (size_t i = 0; i + 2 < len; i ++) {
-        if (buffer[i] == 0x1a && buffer[i + 1] == 0x0f) {
-            *success = (buffer[i + 2] == 0x0c);
-            return true;
-        }
-    }
-
-    return false;
-}
-
 static bool tp_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
                        pappl_device_t *device) {
     // PAPPL ends a job again when ending it failed; it has ended already.
@@ -136,38 +128,15 @@ static bool tp_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
     if (!ctx)
         return false;
 
+    PmJobSent sent = pm_job_sent(ctx);
+
     // pm_job_end frees the job's driver state, whatever it returns.
     bool ok = pm_job_end(ctx, &tp_ops, job, options, device);
     papplJobSetData(job, NULL);
 
-    // Wait for the printer's completion response (1A 0F 0C) with a
-    // longer timeout than the default SO_RCVTIMEO.  This ensures the
-    // RFCOMM send buffer is flushed and the printer has finished
-    // printing before PAPPL closes the device.
-    if (ok) {
-        struct BtConnectionHandle *handle = papplDeviceGetData(device);
-        if (handle) {
-            uint8_t resp[64];
-            ssize_t nread = pm_bt_read_timeout(handle, resp, sizeof(resp), 10000);
-            bool success = false;
-
-            if (nread <= 0) {
-                papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-                            "tp_rendjob: no print-complete response from device");
-                ok = false;
-            } else if (!tp_extract_print_result(resp, (size_t)nread, &success)) {
-                papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-                            "tp_rendjob: missing print-result packet in device response");
-                ok = false;
-            } else if (!success) {
-                papplLogJob(job, PAPPL_LOGLEVEL_ERROR,
-                            "tp_rendjob: printer reported print failure");
-                ok = false;
-            }
-        }
-    }
-
-    return ok;
+    // The printer reports each page it has printed; PAPPL closes the device
+    // once the job has ended.
+    return ok && bt_wait_printed(job, device, sent);
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +163,11 @@ static bool tp_status(pappl_printer_t *printer) {
     pappl_preason_t reasons = papplDeviceGetStatus(device);
     if (reasons & PAPPL_PREASON_MEDIA_EMPTY)
         reasons |= PAPPL_PREASON_MEDIA_NEEDED;
+
+    // The battery of a Bluetooth printer; other devices report none.
+    pappl_supply_t supply;
+    if (papplDeviceGetSupplies(device, 1, &supply) == 1)
+        papplPrinterSetSupplies(printer, 1, &supply);
 
     papplPrinterCloseDevice(printer);
 

@@ -518,6 +518,7 @@ dependencies = [
  "libc",
  "phomemo-protocol",
  "png",
+ "rustix 1.1.4",
  "zbus",
 ]
 

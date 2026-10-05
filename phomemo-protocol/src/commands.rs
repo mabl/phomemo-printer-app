@@ -181,6 +181,14 @@ impl Error for MarginTooLarge {}
 /// [`Response`](crate::responses::Response) named on each variant, in no
 /// particular order and possibly not at all if its firmware lacks the
 /// query (`re/protocol/sequences.md`, "Connection Handshake").
+///
+/// A query's code is not its answer's: measured on an M220 (firmware
+/// 3.0.1), one query at a time, `1F 11 08` is answered by `1A 04`, `09` by
+/// `1A 08`, `0E` by `1A 09` and `38` by `1A 17`, while `63` gets no answer.
+/// The reverse-engineering notes pair codes by number
+/// (`re/protocol/commands.md`); their validation capture
+/// (`re/VALIDATION_FINDINGS.md`, "RX") shows the measured pairing, its
+/// answers arriving in the order the queries were sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Query {
     /// `1F 11 12`; answered by `Response::Cover`.
@@ -191,13 +199,16 @@ pub enum Query {
     /// `1F 11 13` (Print Master: overheat); answered by
     /// `Response::Temperature`.
     Temperature,
+    /// `1F 11 08` (Print Master: `InsGet.BATTERY`); answered by
+    /// `Response::Battery`.
+    Battery,
     /// `1F 11 07`; answered by `Response::FirmwareVersion`.
     FirmwareVersion,
-    /// `1F 11 08`; answered by `Response::SerialNumber`.
+    /// `1F 11 09`; answered by `Response::SerialNumber`.
     SerialNumber,
-    /// `1F 11 09`; answered by `Response::AutoOff`.
+    /// `1F 11 0E`; answered by `Response::AutoOff`.
     AutoOff,
-    /// `1F 11 63`; answered by `Response::ChipType`.
+    /// `1F 11 38`; answered by `Response::ChipType`.
     ChipType,
 }
 
@@ -207,10 +218,11 @@ impl Query {
             Self::Cover => 0x12,
             Self::Paper => 0x11,
             Self::Temperature => 0x13,
+            Self::Battery => 0x08,
             Self::FirmwareVersion => 0x07,
-            Self::SerialNumber => 0x08,
-            Self::AutoOff => 0x09,
-            Self::ChipType => 0x63,
+            Self::SerialNumber => 0x09,
+            Self::AutoOff => 0x0e,
+            Self::ChipType => 0x38,
         }
     }
 }
@@ -430,10 +442,11 @@ mod tests {
         assert_eq!(query(Query::Cover), [0x1f, 0x11, 0x12]);
         assert_eq!(query(Query::Paper), [0x1f, 0x11, 0x11]);
         assert_eq!(query(Query::Temperature), [0x1f, 0x11, 0x13]);
+        assert_eq!(query(Query::Battery), [0x1f, 0x11, 0x08]);
         assert_eq!(query(Query::FirmwareVersion), [0x1f, 0x11, 0x07]);
-        assert_eq!(query(Query::SerialNumber), [0x1f, 0x11, 0x08]);
-        assert_eq!(query(Query::AutoOff), [0x1f, 0x11, 0x09]);
-        assert_eq!(query(Query::ChipType), [0x1f, 0x11, 0x63]);
+        assert_eq!(query(Query::SerialNumber), [0x1f, 0x11, 0x09]);
+        assert_eq!(query(Query::AutoOff), [0x1f, 0x11, 0x0e]);
+        assert_eq!(query(Query::ChipType), [0x1f, 0x11, 0x38]);
     }
 
     #[test]
