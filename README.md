@@ -67,13 +67,7 @@ service's state, and the root drop-in if you installed it in
 
 The Nix package contains the binary, the unit in `lib/systemd/system`, the
 drop-in in `share/phomemo-printer-app` and the example configuration in
-`share/doc/phomemo-printer-app`. On NixOS,
-with `phomemo-printer-app` bound to the package:
-
-```nix
-systemd.packages = [ phomemo-printer-app ];
-systemd.services.phomemo-printer-app.wantedBy = [ "multi-user.target" ];
-```
+`share/doc/phomemo-printer-app`. On NixOS, use the module (below).
 
 ### The service
 
@@ -104,12 +98,91 @@ For root the sandbox limits accidents, not a compromised server: root on
 the system bus can still ask systemd for anything. The drop-in mounts a
 tmpfs over `/etc/cups`, which therefore has to exist: without CUPS, systemd
 creates it, empty, and it stays; with a read-only `/etc` the service fails
-to start. With the Nix package, the drop-in is in
-`share/phomemo-printer-app`; the NixOS module will expose it as an option.
+to start. On NixOS, the module's `runAsRoot` installs the drop-in, and
+provides `/etc/cups` without CUPS.
 
 Configure it in `/etc/default/phomemo-printer-app`, then
 `sudo systemctl restart phomemo-printer-app`. Its web interface is at
 `http://localhost:8000/` unless `PHOMEMO_SERVER_PORT` says otherwise.
+
+### NixOS
+
+The flake's NixOS module runs the package's unit, with its settings as
+options:
+
+```nix
+{
+  inputs.phomemo-printer-app.url = "github:mabl/phomemo-printer-app";
+
+  outputs =
+    { nixpkgs, phomemo-printer-app, ... }:
+    {
+      nixosConfigurations.HOST = nixpkgs.lib.nixosSystem {
+        modules = [
+          phomemo-printer-app.nixosModules.default
+          { services.phomemo-printer-app.enable = true; }
+        ];
+      };
+    };
+}
+```
+
+It builds the package with the system's nixpkgs, so that it shares the
+system's PAPPL, CUPS and C library, or takes `pkgs.phomemo-printer-app`,
+which the flake's `overlays.default` adds. For the build the flake's own
+lock pins, as `nix build` makes it, set `package` to
+`phomemo-printer-app.packages.${pkgs.stdenv.hostPlatform.system}.default`.
+The module installs the sub-commands, and enables BlueZ
+(`hardware.bluetooth.enable`) unless that is set; without BlueZ the service
+runs but finds no printers. `/etc/default/phomemo-printer-app` is not read.
+The options of `services.phomemo-printer-app`:
+
+| Option              | Default       | Sets                              |
+| ------------------- | ------------- | --------------------------------- |
+| `port`              | `8000`        | `PHOMEMO_SERVER_PORT`             |
+| `listenHostname`    | `"localhost"` | `PHOMEMO_LISTEN_HOSTNAME`         |
+| `authService`       | see below     | `PHOMEMO_AUTH_SERVICE`            |
+| `adminGroup`        | `null`        | `PHOMEMO_ADMIN_GROUP`             |
+| `logLevel`          | `"info"`      | `PHOMEMO_LOG_LEVEL`               |
+| `logFile`           | `"-"`         | `PHOMEMO_LOG_FILE`                |
+| `tlsOnly`           | `false`       | `PHOMEMO_TLS_ONLY`                |
+| `bluetoothChannels` | `[ 1 ]`       | `PHOMEMO_BT_CHANNELS`             |
+| `environment`       | `{ }`         | further variables                 |
+| `openFirewall`      | `false`       | opens `port`, if beyond localhost |
+| `runAsRoot`         | `false`       | installs the root drop-in         |
+
+A port below 1024 gives the service the capability to bind it. `logFile`
+is `-` or `syslog`, both the journal, or a file directly in
+`/var/lib/phomemo-printer-app`. `tlsOnly` advertises only `ipps` and
+`https` URIs to other hosts, still answering plain connections.
+`environment` takes the settings without an option, such as
+`PHOMEMO_SPOOL_DIRECTORY`, but none an option sets. `openFirewall` has no
+effect, and warns, while the server listens on localhost only.
+
+Listening beyond localhost, the web interface asks for logins, which PAM
+service `phomemo-printer-app` checks. `authService` names another one;
+set, it makes the local web interface ask for logins too. The module
+declares the service in `security.pam.services`, with NixOS' defaults or
+adding to another module's definition of it. PAM's `pam_unix` checks
+passwords only for a root server, so logins need `runAsRoot`: the module
+warns without it while the PAM service uses `pam_unix`. A web interface
+for the administrators on the network:
+
+```nix
+services.phomemo-printer-app = {
+  enable = true;
+  listenHostname = "*";
+  openFirewall = true;
+  runAsRoot = true;
+  adminGroup = "wheel";
+};
+```
+
+With CUPS (`services.printing.enable`), add its queue once with
+`register-cups` (see Printing through CUPS), which reads its caller's
+environment, not the module's settings: give it the same port and, where
+set, the listen host name and TLS-only, e.g.
+`sudo PHOMEMO_TLS_ONLY=1 phomemo-printer-app register-cups --port 8000`.
 
 ## Configuration
 
@@ -176,8 +249,10 @@ phomemo-printer-app unregister-cups --queue phomemo
 
 The queue reaches the server at `PHOMEMO_LISTEN_HOSTNAME` (`localhost`
 when it listens on every address), over `ipps` with `PHOMEMO_TLS_ONLY`.
-These sub-commands read the environment only, not server options, and need
-a fixed port: `--port`, or `PHOMEMO_SERVER_PORT`. `--replace` recreates an
+These sub-commands read their caller's environment only - not server
+options, nor the service's configuration - so give them the service's
+`PHOMEMO_LISTEN_HOSTNAME` and `PHOMEMO_TLS_ONLY` where it sets them, and
+its fixed port: `--port`, or `PHOMEMO_SERVER_PORT`. `--replace` recreates an
 existing queue. They exit with 0 on success, 2 for invalid arguments, and 1
 on any other failure, including when `lpstat` or `lpadmin` is missing.
 
@@ -197,6 +272,16 @@ on any other failure, including when `lpstat` or `lpadmin` is missing.
 - **Remote logins fail.** They need the root drop-in (see The service).
   Where `/etc/shadow` is mode 0000, as Fedora and RHEL ship it, PAM's
   `unix_chkpwd` also needs the capability the drop-in names.
+- **The web interface answers "Bad Request" from the network.** PAPPL
+  takes requests only for `localhost`, an address, any `.local` name, or
+  its own host name: `PHOMEMO_LISTEN_HOSTNAME` when that names a host,
+  otherwise the system's, with `.local` added if it has no domain. So
+  `http://HOST:PORT/` fails for a bare host name; use the address, or
+  `http://HOST.local:PORT/`, which needs mDNS on both ends: Avahi
+  publishing the host (on NixOS, `services.avahi = { enable = true;
+  publish = { enable = true; addresses = true; userServices = true; }; }`,
+  which also lets the server announce its printers), and a client that
+  resolves `.local` names (`services.avahi.nssmdns4 = true`).
 - **A port below 1024** needs `AmbientCapabilities=CAP_NET_BIND_SERVICE`
   and `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` in a drop-in.
 - **`shutdown` returns before the server exits**, which happens when PAPPL's
@@ -260,9 +345,14 @@ make check     # fmt-check, clippy, tests, C with -Werror, and the build
 ```
 
 Other targets: `make fmt`, `make lint` (clippy), `make c-lint`,
-`make test`, `make clean`. CI runs `make ci`, which is `make check` but
-the build, and `nix flake check`, which builds the package (and runs the
-tests again, in release mode) instead.
+`make test`, `make clean`, and `make ci`, which is `make check` but the
+build. CI runs `nix flake check`, which checks the same hermetically - the
+package build runs the tests, in release mode - plus the Nix files'
+formatting (`nix fmt`), the dev shell, and the NixOS module: its options
+evaluated (`.#checks.x86_64-linux.module-eval`), and its service in VMs
+(`nix build -L .#checks.x86_64-linux.nixos`, which needs KVM).
+
+A weekly workflow proposes the newest nixpkgs in a pull request.
 
 The driver's media catalog, `phomemo-protocol/data/media_catalog.json`, is
 generated from the media definitions in the Print Master Android app:

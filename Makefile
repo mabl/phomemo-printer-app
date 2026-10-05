@@ -144,8 +144,8 @@ fmt:
 fmt-check:
 	$(CARGO) fmt --all --check
 
-# What CI runs besides `nix flake check`, which builds the package; and
-# that plus the build, to run before pushing.
+# The checks of the sources, which CI runs hermetically as flake checks; and
+# those plus the build, to run before pushing.
 ci: fmt-check lint test c-lint
 check: ci all
 

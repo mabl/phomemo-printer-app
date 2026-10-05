@@ -18,16 +18,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # Also opens /dev/kvm to the Nix build users (enable_kvm, the
+      # default), which the NixOS VM test needs.
       - uses: cachix/install-nix-action@v31
-      # Caches ~/.cargo and target/ for `make ci`; the package build in
-      # the Nix sandbox uses neither.
-      - uses: Swatinem/rust-cache@v2
-      # Evaluates the flake for every system, and builds the package for
-      # this one - make, its Rust tests, make install - as `nix build` does.
+      # Evaluates the flake for every system, and builds this one's checks:
+      # the package with its Rust tests, formatting, clippy, the C sources
+      # with -Werror - everything `make ci` runs, but hermetically - the
+      # dev shell, and the NixOS module, evaluated and in a VM test.
       - name: nix flake check
         run: nix flake check --all-systems
-      # Formatting, clippy, the tests and the C sources with -Werror, in the
-      # dev shell developers use: `make check` without the release build,
-      # which the step above has done.
-      - name: make ci
-        run: nix develop --command make ci

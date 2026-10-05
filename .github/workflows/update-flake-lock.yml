@@ -1,0 +1,27 @@
+# Opens, or updates, a pull request with the newest nixpkgs every week, which
+# CI then checks. The repository has to allow GitHub Actions to create pull
+# requests (Settings > Actions > General). GitHub runs no workflows on a pull
+# request the default token opened: close and reopen it to run CI, or store a
+# token with read and write access to contents and pull requests as the
+# secret FLAKE_LOCK_TOKEN, which is used instead.
+name: Update flake.lock
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: DeterminateSystems/update-flake-lock@v29
+        with:
+          token: ${{ secrets.FLAKE_LOCK_TOKEN || github.token }}
