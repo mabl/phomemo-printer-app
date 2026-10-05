@@ -40,7 +40,7 @@ BIN       := phomemo-printer-app
 UNIT_FILE := systemd/phomemo-printer-app.service
 ENV_FILE_EXAMPLE := systemd/phomemo-printer-app.env.example
 
-C_SRCS    := c/main.c c/driver.c c/device_bt.c c/bridge.c c/media.c
+C_SRCS    := c/main.c c/driver.c c/device_bt.c c/media.c
 C_FLAGS_ALL = $(WARN_CFLAGS) $(CPPFLAGS) $(CFLAGS) -I generated $(PAPPL_CFLAGS)
 # Sources cbindgen reads, plus their directories so that adding, removing or
 # renaming a module also regenerates the header.

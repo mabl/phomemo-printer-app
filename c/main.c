@@ -76,7 +76,7 @@ static void build_driver_table(void) {
         return;
     num_drivers = (int)n;
     for (unsigned i = 0; i < n; i++) {
-        const struct ModelInfoC *m = pm_model_get(i);
+        const PmModel *m = pm_model_get(i);
         drivers[i].name      = m->driver_name;
         drivers[i].description = m->name;
         drivers[i].device_id = m->device_id;

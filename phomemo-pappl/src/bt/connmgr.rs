@@ -125,11 +125,7 @@ fn parse_channel_list(raw: &str) -> Vec<u8> {
 fn configured_channels() -> Vec<u8> {
     let from_env = std::env::var("PHOMEMO_BT_CHANNELS").unwrap_or_default();
     let parsed = parse_channel_list(&from_env);
-    if parsed.is_empty() {
-        vec![1]
-    } else {
-        parsed
-    }
+    if parsed.is_empty() { vec![1] } else { parsed }
 }
 
 fn candidate_channels(channel_hint: Option<u8>, cached_channel: Option<u8>) -> Vec<u8> {

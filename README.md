@@ -116,3 +116,29 @@ Default service config file path:
 - `/etc/default/phomemo-printer-app`
 
 You can edit that file and restart the service to change listen/auth/log/spool settings.
+
+## Known limitations
+
+- Images (PNG, JPEG) submitted directly cannot be printed on a continuous
+  roll (a media size 0 mm long): PAPPL rasterizes an image onto the media
+  size and refuses a page without length ("Invalid media size"). Choose a
+  label size for such jobs, e.g. `-o media=om_40x30mm_40x30mm`, or print
+  through CUPS, which renders pages of a definite length.
+
+## Upgrading
+
+Print darkness now follows PAPPL's semantics: the printer's darkness
+(`printer-darkness-configured`, 0-100 %, set in the web interface) plus a
+per-job offset (`print-darkness`, -100 to 100, default 0), mapped onto the
+printer's 15 density levels. Earlier builds used `print-darkness` as the
+density itself and saved a default of 8, which now reads as an offset of
++8 %, so printers created by an earlier build print darker than intended.
+Reset each one once: choose the darkness in its web interface, and clear
+the saved offset, which the web interface does not show:
+
+```bash
+./phomemo-printer-app modify -d PRINTER -o print-darkness-default=0
+```
+
+Print speed now defaults to the printer's own setting ("Auto") instead of
+level 3.

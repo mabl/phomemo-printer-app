@@ -37,21 +37,6 @@ static bool media_parse_decimal(const char *value, double *out) {
     return true;
 }
 
-static int media_head_max_width_hundredths_mm(const pappl_pr_driver_data_t *data) {
-    if (!data || !data->extension)
-        return 0;
-
-    const struct ModelInfoC *model = (const struct ModelInfoC *)data->extension;
-    if (!model || model->max_width_px == 0 || model->dpi == 0)
-        return 0;
-
-    unsigned width_hundredths =
-        (unsigned)model->max_width_px * 2540u + (unsigned)model->dpi / 2u;
-    width_hundredths /= (unsigned)model->dpi;
-
-    return (int)width_hundredths;
-}
-
 static bool media_tracking_is_supported(unsigned tracking_supported, int tracking) {
     return (tracking == PAPPL_MEDIA_TRACKING_CONTINUOUS &&
             (tracking_supported & PAPPL_MEDIA_TRACKING_CONTINUOUS)) ||
@@ -112,27 +97,10 @@ static void media_normalize_ready_state(pappl_printer_t *printer) {
     pappl_pr_driver_data_t data;
     papplPrinterGetDriverData(printer, &data);
 
-    unsigned ready_tracking = 0;
-    if (data.extension) {
-        const struct ModelInfoC *model = (const struct ModelInfoC *)data.extension;
-        if (model->driver_name)
-            ready_tracking = pm_media_tracking_for_size(model->driver_name, data.media_ready[0].size_name);
-    }
-    if (!ready_tracking)
-        ready_tracking = (data.media_ready[0].size_length == 0)
-            ? PAPPL_MEDIA_TRACKING_CONTINUOUS
-            : PAPPL_MEDIA_TRACKING_GAP;
-
-    unsigned default_tracking = 0;
-    if (data.extension) {
-        const struct ModelInfoC *model = (const struct ModelInfoC *)data.extension;
-        if (model->driver_name)
-            default_tracking = pm_media_tracking_for_size(model->driver_name, data.media_default.size_name);
-    }
-    if (!default_tracking)
-        default_tracking = (data.media_default.size_length == 0)
-            ? PAPPL_MEDIA_TRACKING_CONTINUOUS
-            : PAPPL_MEDIA_TRACKING_GAP;
+    unsigned ready_tracking = pm_media_tracking(
+        data.extension, data.media_ready[0].size_name, data.media_ready[0].size_length);
+    unsigned default_tracking = pm_media_tracking(
+        data.extension, data.media_default.size_name, data.media_default.size_length);
 
     bool changed = false;
     if (data.media_ready[0].tracking != (int)ready_tracking) {
@@ -252,19 +220,8 @@ static void media_apply(pappl_printer_t *printer, const char *size_name) {
         (pwg->length == 0) ? "continuous" : "labels",
         sizeof(data.media_ready[0].type));
 
-    // Preferred tracking from Rust media catalog; fallback to length heuristic.
-    unsigned tracking = 0;
-    if (data.extension) {
-        const struct ModelInfoC *model = (const struct ModelInfoC *)data.extension;
-        if (model->driver_name)
-            tracking = pm_media_tracking_for_size(model->driver_name, size_name);
-    }
-    if (!tracking) {
-        tracking = (pwg->length > 0)
-            ? PAPPL_MEDIA_TRACKING_GAP
-            : PAPPL_MEDIA_TRACKING_CONTINUOUS;
-    }
-    data.media_ready[0].tracking = tracking;
+    // Preferred tracking from the Rust media catalog, or by length.
+    data.media_ready[0].tracking = pm_media_tracking(data.extension, size_name, pwg->length);
 
     papplPrinterSetDriverData(printer, &data, NULL);
     papplPrinterSetReadyMedia(printer, 1, data.media_ready);
@@ -311,7 +268,6 @@ static bool media_page_cb(pappl_client_t *client, void *data) {
                         double length_value = 0.0;
                         int width = 0;
                         int length = 0;
-                        int max_width = media_head_max_width_hundredths_mm(&ddata);
 
                         if (!media_parse_decimal(w_str, &width_value) ||
                             !media_parse_decimal(l_str, &length_value) ||
@@ -329,7 +285,7 @@ static bool media_page_cb(pappl_client_t *client, void *data) {
                             length = (int)(100.0 * length_value + 0.5);
                         }
 
-                        if (width <= 0 || (max_width > 0 && width > max_width)) {
+                        if (!pm_media_fits(ddata.extension, width, length)) {
                             status = "Custom width exceeds printer capacity.";
                             goto media_post_tracking;
                         }

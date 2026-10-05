@@ -1,8 +1,9 @@
 //
 // Phomemo Printer Application — driver callbacks.
 //
-// tp_driver_cb fills pappl_pr_driver_data_t with model-specific capabilities.
-// Raster callbacks bridge into Rust via the PhomemoOps vtable.
+// tp_driver_cb reports each model's capabilities to PAPPL. The raster
+// callbacks hand PAPPL's pages to the Rust driver (pm_job_*), together with
+// tp_ops, the PAPPL functions it calls back.
 //
 
 #include <string.h>
@@ -12,120 +13,73 @@
 #include <pappl/pappl.h>
 #include "phomemo_pappl.h"
 
+// Vendor attributes: the job options the Rust driver reads.
+#define TP_VENDOR_DITHER      "phomemo-dither"
+#define TP_VENDOR_COMPRESSION "phomemo-compression"
+
 // ---------------------------------------------------------------------------
-// Bridge functions — thin wrappers giving Rust access to PAPPL types
-// (defined in bridge.c)
+// The PAPPL and CUPS values the Rust side mirrors (src/pappl.rs) must be the
+// real ones.
 // ---------------------------------------------------------------------------
-extern ssize_t bridge_write(void *device, const unsigned char *data, size_t len);
-extern ssize_t bridge_read(void *device, unsigned char *buf, size_t len);
-extern void bridge_flush(void *device);
-extern void bridge_log(void *job, int level, const char *msg);
-extern bool bridge_is_canceled(void *job);
-extern unsigned bridge_bytes_per_line(const void *options);
-extern unsigned bridge_width_px(const void *options);
-extern unsigned bridge_height_px(const void *options);
-extern int bridge_get_print_darkness(const void *options);
-extern int bridge_get_print_speed(const void *options);
-extern unsigned bridge_get_media_tracking(const void *options);
-extern int bridge_get_orientation(const void *options);
-extern unsigned bridge_get_copies(const void *options);
-extern unsigned bridge_get_bits_per_pixel(const void *options);
-extern unsigned bridge_get_color_space(const void *options);
-extern unsigned bridge_get_content_optimize(const void *options);
-extern const char *bridge_get_vendor_option(const void *options, const char *name);
-extern bool bridge_model_supports_compression(void *job);
 
-static ssize_t ops_write(void *device, const uint8_t *data, size_t len) {
-    return bridge_write(device, data, len);
+#define TP_ASSERT_SAME(rust, pappl) \
+    _Static_assert((rust) == (pappl), #rust " differs from " #pappl)
+
+TP_ASSERT_SAME(PM_MAX_MEDIA, PAPPL_MAX_MEDIA);
+TP_ASSERT_SAME(PM_LOGLEVEL_DEBUG, PAPPL_LOGLEVEL_DEBUG);
+TP_ASSERT_SAME(PM_LOGLEVEL_INFO, PAPPL_LOGLEVEL_INFO);
+TP_ASSERT_SAME(PM_LOGLEVEL_WARN, PAPPL_LOGLEVEL_WARN);
+TP_ASSERT_SAME(PM_LOGLEVEL_ERROR, PAPPL_LOGLEVEL_ERROR);
+TP_ASSERT_SAME(PM_MEDIA_TRACKING_CONTINUOUS, PAPPL_MEDIA_TRACKING_CONTINUOUS);
+TP_ASSERT_SAME(PM_MEDIA_TRACKING_GAP, PAPPL_MEDIA_TRACKING_GAP);
+TP_ASSERT_SAME(PM_MEDIA_TRACKING_MARK, PAPPL_MEDIA_TRACKING_MARK);
+TP_ASSERT_SAME(PM_PREASON_OTHER, PAPPL_PREASON_OTHER);
+TP_ASSERT_SAME(PM_PREASON_COVER_OPEN, PAPPL_PREASON_COVER_OPEN);
+TP_ASSERT_SAME(PM_PREASON_MARKER_SUPPLY_LOW, PAPPL_PREASON_MARKER_SUPPLY_LOW);
+TP_ASSERT_SAME(PM_PREASON_MEDIA_EMPTY, PAPPL_PREASON_MEDIA_EMPTY);
+TP_ASSERT_SAME(PM_PREASON_OFFLINE, PAPPL_PREASON_OFFLINE);
+TP_ASSERT_SAME(PM_COLOR_MODE_BI_LEVEL, PAPPL_COLOR_MODE_BI_LEVEL);
+TP_ASSERT_SAME(PM_CONTENT_TEXT, PAPPL_CONTENT_TEXT);
+TP_ASSERT_SAME(PM_CONTENT_TEXT_AND_GRAPHIC, PAPPL_CONTENT_TEXT_AND_GRAPHIC);
+TP_ASSERT_SAME(PM_CSPACE_W, CUPS_CSPACE_W);
+TP_ASSERT_SAME(PM_CSPACE_K, CUPS_CSPACE_K);
+TP_ASSERT_SAME(PM_CSPACE_SW, CUPS_CSPACE_SW);
+
+// ---------------------------------------------------------------------------
+// The PAPPL functions the Rust driver calls back
+// ---------------------------------------------------------------------------
+
+static void tp_log(pappl_job_t *job, int level, const char *message) {
+    papplLogJob(job, level, "%s", message);
 }
 
-static ssize_t ops_read(void *device, uint8_t *buf, size_t len) {
-    return bridge_read(device, buf, len);
+static PmOptions tp_options(const pappl_pr_options_t *options) {
+    return (PmOptions) {
+        .width               = options->header.cupsWidth,
+        .height              = options->header.cupsHeight,
+        .bytes_per_line      = options->header.cupsBytesPerLine,
+        .bits_per_pixel      = options->header.cupsBitsPerPixel,
+        .color_space         = options->header.cupsColorSpace,
+        .print_darkness      = options->print_darkness,
+        .darkness_configured = options->darkness_configured,
+        .print_speed         = options->print_speed,
+        .media_tracking      = options->media.tracking,
+        .media_length        = options->media.size_length,
+        .color_mode          = options->print_color_mode,
+        .content_optimize    = options->print_content_optimize,
+        .dither              = cupsGetOption(TP_VENDOR_DITHER,
+                                             options->num_vendor, options->vendor),
+        .compression         = cupsGetOption(TP_VENDOR_COMPRESSION,
+                                             options->num_vendor, options->vendor),
+    };
 }
 
-static void ops_flush(void *device) {
-    bridge_flush(device);
-}
-
-static void ops_log(void *job, int level, const char *msg) {
-    bridge_log(job, level, msg);
-}
-
-static bool ops_is_canceled(void *job) {
-    return bridge_is_canceled(job);
-}
-
-static unsigned ops_bytes_per_line(const void *options) {
-    return bridge_bytes_per_line(options);
-}
-
-static unsigned ops_width_px(const void *options) {
-    return bridge_width_px(options);
-}
-
-static unsigned ops_height_px(const void *options) {
-    return bridge_height_px(options);
-}
-
-static int ops_get_print_darkness(const void *options) {
-    return bridge_get_print_darkness(options);
-}
-
-static int ops_get_print_speed(const void *options) {
-    return bridge_get_print_speed(options);
-}
-
-static unsigned ops_get_media_tracking(const void *options) {
-    return bridge_get_media_tracking(options);
-}
-
-static int ops_get_orientation(const void *options) {
-    return bridge_get_orientation(options);
-}
-
-static unsigned ops_get_copies(const void *options) {
-    return bridge_get_copies(options);
-}
-
-static unsigned ops_get_bits_per_pixel(const void *options) {
-    return bridge_get_bits_per_pixel(options);
-}
-
-static unsigned ops_get_color_space(const void *options) {
-    return bridge_get_color_space(options);
-}
-
-static unsigned ops_get_content_optimize(const void *options) {
-    return bridge_get_content_optimize(options);
-}
-
-static const char *ops_get_vendor_option(const void *options, const char *name) {
-    return bridge_get_vendor_option(options, name);
-}
-
-static bool ops_model_supports_compression(void *job) {
-    return bridge_model_supports_compression(job);
-}
-
-static const PhomemoOps OPS = {
-    .write            = ops_write,
-    .read             = ops_read,
-    .flush            = ops_flush,
-    .log              = ops_log,
-    .is_canceled      = ops_is_canceled,
-    .bytes_per_line   = ops_bytes_per_line,
-    .width_px         = ops_width_px,
-    .height_px        = ops_height_px,
-    .get_print_darkness  = ops_get_print_darkness,
-    .get_print_speed     = ops_get_print_speed,
-    .get_media_tracking  = ops_get_media_tracking,
-    .get_orientation     = ops_get_orientation,
-    .get_copies          = ops_get_copies,
-    .get_bits_per_pixel  = ops_get_bits_per_pixel,
-    .get_color_space     = ops_get_color_space,
-    .get_content_optimize = ops_get_content_optimize,
-    .get_vendor_option   = ops_get_vendor_option,
-    .model_supports_compression = ops_model_supports_compression,
+static const PmOps tp_ops = {
+    .write       = papplDeviceWrite,
+    .flush       = papplDeviceFlush,
+    .is_canceled = papplJobIsCanceled,
+    .log         = tp_log,
+    .options     = tp_options,
 };
 
 // ---------------------------------------------------------------------------
@@ -134,53 +88,31 @@ static const PhomemoOps OPS = {
 
 static bool tp_rstartjob(pappl_job_t *job, pappl_pr_options_t *options,
                          pappl_device_t *device) {
-    // Retrieve the print-head width from per-driver extension data.
-    pappl_printer_t *printer = papplJobGetPrinter(job);
-    pappl_pr_driver_data_t dd;
-    papplPrinterGetDriverData(printer, &dd);
+    pappl_pr_driver_data_t data;
+    papplPrinterGetDriverData(papplJobGetPrinter(job), &data);
 
-    unsigned head_w = 0;
-    if (dd.extension) {
-        const struct ModelInfoC *model_ext = (const struct ModelInfoC *)dd.extension;
-        if (model_ext->max_width_bytes > 0)
-            head_w = model_ext->max_width_bytes;
-    }
-
-    if (!head_w && options && options->header.cupsBytesPerLine > 0)
-        head_w = options->header.cupsBytesPerLine;
-
-    if (!head_w)
-        return false;
-
-    DriverCtx *ctx = pm_ctx_new(head_w);
-    if (!ctx) return false;
+    PmJob *ctx = pm_job_start(data.extension, &tp_ops, job, options, device);
     papplJobSetData(job, ctx);
-    return pm_start_job(ctx, &OPS, job, options, device);
+    return ctx != NULL;
 }
 
 static bool tp_rstartpage(pappl_job_t *job, pappl_pr_options_t *options,
                           pappl_device_t *device, unsigned page) {
-    DriverCtx *ctx = (DriverCtx *)papplJobGetData(job);
-    return ctx && pm_start_page(ctx, &OPS, job, options, device, page);
+    (void)page;
+    return pm_job_start_page(papplJobGetData(job), &tp_ops, job, options, device);
 }
 
 static bool tp_rwriteline(pappl_job_t *job, pappl_pr_options_t *options,
                           pappl_device_t *device, unsigned y,
                           const unsigned char *line) {
-    DriverCtx *ctx = (DriverCtx *)papplJobGetData(job);
-    return ctx && pm_write_line(ctx, &OPS, job, options, device, y, line);
+    (void)y;
+    return pm_job_write_line(papplJobGetData(job), &tp_ops, job, options, device, line);
 }
 
 static bool tp_rendpage(pappl_job_t *job, pappl_pr_options_t *options,
                         pappl_device_t *device, unsigned page) {
-    DriverCtx *ctx = (DriverCtx *)papplJobGetData(job);
-    if (!ctx) return false;
-    bool ok = pm_end_page(ctx, &OPS, job, options, device, page);
-    if (ok) {
-        unsigned copies = (options && options->copies > 0) ? options->copies : 1;
-        papplJobSetImpressionsCompleted(job, (int)(page * copies));
-    }
-    return ok;
+    (void)page;
+    return pm_job_end_page(papplJobGetData(job), &tp_ops, job, options, device);
 }
 
 static bool tp_extract_print_result(const uint8_t *buffer, size_t len, bool *success) {
@@ -199,9 +131,13 @@ static bool tp_extract_print_result(const uint8_t *buffer, size_t len, bool *suc
 
 static bool tp_rendjob(pappl_job_t *job, pappl_pr_options_t *options,
                        pappl_device_t *device) {
-    DriverCtx *ctx = (DriverCtx *)papplJobGetData(job);
-    bool ok = ctx && pm_end_job(ctx, &OPS, job, options, device);
-    pm_ctx_free(ctx);
+    // PAPPL ends a job again when ending it failed; it has ended already.
+    PmJob *ctx = papplJobGetData(job);
+    if (!ctx)
+        return false;
+
+    // pm_job_end frees the job's driver state, whatever it returns.
+    bool ok = pm_job_end(ctx, &tp_ops, job, options, device);
     papplJobSetData(job, NULL);
 
     // Wait for the printer's completion response (1A 0F 0C) with a
@@ -276,6 +212,9 @@ static bool tp_status(pappl_printer_t *printer) {
 
 static const char *tp_testpage(pappl_printer_t *printer, char *buffer,
                                size_t bufsize) {
+    pappl_pr_driver_data_t data;
+    papplPrinterGetDriverData(printer, &data);
+
     int fd = papplCreateTempFile(buffer, bufsize, "phomemo-testpage", "png");
     if (fd < 0) {
         papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR,
@@ -284,7 +223,8 @@ static const char *tp_testpage(pappl_printer_t *printer, char *buffer,
         return NULL;
     }
 
-    bool ok = pm_write_testpage_png(fd);
+    bool ok = pm_write_testpage_png(fd, data.extension, data.media_ready[0].size_width,
+                                    data.media_ready[0].size_length);
     if (close(fd) < 0) {
         papplLogPrinter(printer, PAPPL_LOGLEVEL_ERROR,
                         "tp_testpage: close failed for temporary PNG: %s",
@@ -376,7 +316,7 @@ static void tp_add_driver_attrs(ipp_t **driver_attrs) {
         attrs,
         IPP_TAG_PRINTER,
         IPP_TAG_KEYWORD,
-        "phomemo-dither-supported",
+        TP_VENDOR_DITHER "-supported",
         (int)(sizeof(dither_values) / sizeof(dither_values[0])),
         NULL,
         dither_values);
@@ -384,7 +324,7 @@ static void tp_add_driver_attrs(ipp_t **driver_attrs) {
         attrs,
         IPP_TAG_PRINTER,
         IPP_TAG_KEYWORD,
-        "phomemo-dither-default",
+        TP_VENDOR_DITHER "-default",
         NULL,
         "auto");
 
@@ -392,7 +332,7 @@ static void tp_add_driver_attrs(ipp_t **driver_attrs) {
         attrs,
         IPP_TAG_PRINTER,
         IPP_TAG_KEYWORD,
-        "phomemo-compression-supported",
+        TP_VENDOR_COMPRESSION "-supported",
         (int)(sizeof(compression_values) / sizeof(compression_values[0])),
         NULL,
         compression_values);
@@ -400,7 +340,7 @@ static void tp_add_driver_attrs(ipp_t **driver_attrs) {
         attrs,
         IPP_TAG_PRINTER,
         IPP_TAG_KEYWORD,
-        "phomemo-compression-default",
+        TP_VENDOR_COMPRESSION "-default",
         NULL,
         "auto");
 }
@@ -415,13 +355,12 @@ const char *tp_autoadd_cb(const char *device_info,
                           void *data) {
     (void)device_uri;
     (void)data;
-    // Three-phase matching (exact MDL, scored 1284, fallback substring)
-    // implemented in Rust — see pm_autoadd_match in lib.rs / ieee1284.rs.
+    // Matching is implemented in Rust: see phomemo-pappl/src/autoadd.rs.
     return pm_autoadd_match(device_info, device_id);
 }
 
 // ---------------------------------------------------------------------------
-// driver_cb — thin wrapper: Rust fills data-driven values, C sets callbacks
+// driver_cb — Rust supplies the model's capabilities, C fills in the rest
 // ---------------------------------------------------------------------------
 
 bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
@@ -431,17 +370,11 @@ bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
     (void)system; (void)device_uri; (void)device_id;
     (void)data;
 
-    // Ask Rust for all data-driven defaults.
-    struct DriverDefaultsC defs;
-    memset(&defs, 0, sizeof(defs));
-    if (!pm_driver_defaults(driver_name, &defs))
+    // PAPPL has already initialized dd with its own defaults.
+    const PmModel *model = pm_model_lookup(driver_name);
+    PmDriverDefaults defaults;
+    if (!pm_driver_defaults(model, &defaults))
         return false;
-
-    const struct ModelInfoC *model = pm_model_lookup(driver_name);
-    if (!model)
-        return false;
-
-    memset(dd, 0, sizeof(*dd));
 
     // --- Callbacks (must stay C — they reference PAPPL opaque types) ---
     dd->rstartjob_cb  = tp_rstartjob;
@@ -454,8 +387,8 @@ bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
     dd->testpage_cb   = tp_testpage;
     dd->printfile_cb  = tp_printfile;
 
-    // --- Data-driven values from Rust ---
-    memcpy(dd->make_and_model, defs.make_and_model, sizeof(dd->make_and_model));
+    papplCopyString(dd->make_and_model, defaults.make_and_model,
+                    sizeof(dd->make_and_model));
 
     dd->kind = PAPPL_KIND_LABEL | PAPPL_KIND_ROLL;
     dd->has_supplies = true;
@@ -471,8 +404,11 @@ bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
     dd->content_default   = PAPPL_CONTENT_AUTO;
     dd->quality_default   = IPP_QUALITY_NORMAL;
     dd->scaling_default   = PAPPL_SCALING_AUTO;
-    dd->raster_types      = PAPPL_PWG_RASTER_TYPE_BLACK_1
-                          | PAPPL_PWG_RASTER_TYPE_BLACK_8
+    // 8-bit only: PAPPL 1.4 hands a client's black_1 lines to the driver
+    // while the page header still describes its own 8-bit raster
+    // (_papplJobProcessRaster replaces the header only when both are 8-bit),
+    // so 1-bit input cannot be told apart. bi-level is thresholded in Rust.
+    dd->raster_types      = PAPPL_PWG_RASTER_TYPE_BLACK_8
                           | PAPPL_PWG_RASTER_TYPE_SGRAY_8;
     dd->force_raster_type = PAPPL_PWG_RASTER_TYPE_NONE;
     dd->sides_supported   = PAPPL_SIDES_ONE_SIDED;
@@ -481,36 +417,27 @@ bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
 
     // Resolution
     dd->num_resolution = 1;
-    dd->x_resolution[0] = dd->y_resolution[0] = defs.dpi;
-    dd->x_default = dd->y_default = defs.dpi;
+    dd->x_resolution[0] = dd->y_resolution[0] = defaults.dpi;
+    dd->x_default = dd->y_default = defaults.dpi;
 
     // Margins — borderless
     dd->borderless = true;
 
-    // Darkness
-    dd->darkness_supported  = defs.darkness_supported;
-    dd->darkness_default    = defs.darkness_default;
-    dd->darkness_configured = defs.darkness_default;
+    dd->darkness_supported  = defaults.darkness_supported;
+    dd->darkness_configured = defaults.darkness_configured;
+    dd->darkness_default    = defaults.darkness_default;
 
-    // Speed
-    dd->speed_supported[0] = defs.speed_min;
-    dd->speed_supported[1] = defs.speed_max;
-    dd->speed_default      = defs.speed_default;
+    dd->speed_supported[0] = defaults.speed_supported[0];
+    dd->speed_supported[1] = defaults.speed_supported[1];
+    dd->speed_default      = defaults.speed_default;
 
     // Label modes
     dd->mode_supported = PAPPL_LABEL_MODE_TEAR_OFF
-                       | (defs.has_cutter ? PAPPL_LABEL_MODE_CUTTER : 0);
-    dd->mode_configured = defs.has_cutter
+                       | (defaults.has_cutter ? PAPPL_LABEL_MODE_CUTTER : 0);
+    dd->mode_configured = defaults.has_cutter
                         ? PAPPL_LABEL_MODE_CUTTER
                         : PAPPL_LABEL_MODE_TEAR_OFF;
-    unsigned tracking_supported = defs.tracking_supported;
-    for (int i = 0; i < defs.num_media && i < PAPPL_MAX_MEDIA; i++)
-        tracking_supported |= defs.media_tracking[i];
-    if (!tracking_supported)
-        tracking_supported = PAPPL_MEDIA_TRACKING_CONTINUOUS
-                           | PAPPL_MEDIA_TRACKING_GAP
-                           | PAPPL_MEDIA_TRACKING_MARK;
-    dd->tracking_supported = tracking_supported;
+    dd->tracking_supported = defaults.tracking_supported;
 
     dd->tear_offset_supported[0] = -500;
     dd->tear_offset_supported[1] =  500;
@@ -519,22 +446,21 @@ bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
     dd->identify_default   = PAPPL_IDENTIFY_ACTIONS_NONE;
 
     // Media list from Rust
-    dd->num_media = (defs.num_media <= PAPPL_MAX_MEDIA) ? defs.num_media : PAPPL_MAX_MEDIA;
-    for (int i = 0; i < dd->num_media; i++)
-        dd->media[i] = defs.media_names[i];
+    _Static_assert(sizeof(dd->media) == sizeof(defaults.media),
+                   "PmDriverDefaults.media must match pappl_pr_driver_data_t.media");
+    dd->num_media = defaults.num_media;
+    memcpy(dd->media, defaults.media, sizeof(dd->media));
 
     // Default media
-    dd->media_default.size_width  = defs.default_width;
-    dd->media_default.size_length = defs.default_length;
-    dd->media_default.tracking    = defs.default_tracking ? defs.default_tracking : PAPPL_MEDIA_TRACKING_GAP;
-    memcpy(dd->media_default.size_name, defs.default_size_name,
-           sizeof(dd->media_default.size_name));
-    snprintf(dd->media_default.source, sizeof(dd->media_default.source), "main-roll");
-    snprintf(
-        dd->media_default.type,
-        sizeof(dd->media_default.type),
-        "%s",
-        (dd->media_default.size_length == 0) ? "continuous" : "labels");
+    papplCopyString(dd->media_default.size_name, defaults.media_default.size_name,
+                    sizeof(dd->media_default.size_name));
+    dd->media_default.size_width  = defaults.media_default.width;
+    dd->media_default.size_length = defaults.media_default.length;
+    dd->media_default.tracking    = defaults.media_default.tracking;
+    papplCopyString(dd->media_default.type, defaults.media_default.media_type,
+                    sizeof(dd->media_default.type));
+    papplCopyString(dd->media_default.source, "main-roll",
+                    sizeof(dd->media_default.source));
 
     dd->num_source = 1;
     dd->source[0]  = "main-roll";
@@ -547,13 +473,14 @@ bool tp_driver_cb(pappl_system_t *system, const char *driver_name,
 
     dd->format = "application/vnd.phomemo-raw";
 
-    // Vendor attribute: dithering algorithm selection
+    // Vendor attributes: dithering algorithm and compression selection
     dd->num_vendor = 2;
-    dd->vendor[0]  = "phomemo-dither";
-    dd->vendor[1]  = "phomemo-compression";
+    dd->vendor[0]  = TP_VENDOR_DITHER;
+    dd->vendor[1]  = TP_VENDOR_COMPRESSION;
     tp_add_driver_attrs(driver_attrs);
 
-    // Per-driver extension → immutable model metadata.
+    // Per-driver extension: the model, for the raster callbacks, the test
+    // page and the media page. PAPPL only stores the (non-const) pointer.
     dd->extension = (void *)model;
 
     return true;
