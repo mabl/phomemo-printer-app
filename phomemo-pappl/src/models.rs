@@ -435,6 +435,29 @@ mod tests {
         assert_eq!(names, expected);
     }
 
+    /// `docs/models.md` lists the models one line per head width:
+    /// `- <dots>-dot head ...: <name>, <name>, ...`.
+    #[test]
+    fn the_model_list_names_every_model_by_head_width() {
+        let list = include_str!("../../docs/models.md");
+        let mut listed = Vec::new();
+        for line in list.lines().filter_map(|line| line.strip_prefix("- ")) {
+            let (head, names) = line.split_once(':').expect("`head: names`");
+            let dots: usize = head
+                .split_once("-dot")
+                .and_then(|(dots, _)| dots.parse().ok())
+                .expect("`<dots>-dot head`");
+            for name in names.split(',').map(str::trim) {
+                assert_eq!(model(name).head_width_px(), dots, "{name}");
+                listed.push(name);
+            }
+        }
+        listed.sort_unstable();
+        let mut expected: Vec<_> = Model::all().iter().map(Model::name).collect();
+        expected.sort_unstable();
+        assert_eq!(listed, expected);
+    }
+
     #[test]
     fn views_map_back_to_their_model() {
         for model in Model::all() {

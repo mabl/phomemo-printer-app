@@ -2,6 +2,9 @@
 #
 # Cargo builds the Rust static library, cbindgen generates the C header,
 # cc compiles and links the PAPPL binary.
+#
+# The install targets only copy what `make` built, so they work as root
+# without a Rust toolchain: build first, then install.
 
 CC       ?= cc
 CPPFLAGS ?=
@@ -10,10 +13,18 @@ LDFLAGS  ?=
 LDLIBS   ?=
 CARGO    ?= cargo
 CBINDGEN ?= cbindgen
-PREFIX   ?= /usr/local
-BINDIR   ?= $(PREFIX)/bin
-SYSTEMD_DIR ?= /etc/systemd/system
-ENV_DIR  ?= /etc/default
+PKG_CONFIG ?= pkg-config
+INSTALL  ?= install
+
+# Installation directories, all below DESTDIR when it is set. UNITDIR is
+# where systemd looks for an administrator's units under /usr/local, and a
+# distribution's under /usr; ENVFILE is the service's configuration.
+PREFIX     ?= /usr/local
+BINDIR     ?= $(PREFIX)/bin
+DATADIR    ?= $(PREFIX)/share
+UNITDIR    ?= $(PREFIX)/lib/systemd/system
+SYSCONFDIR ?= /etc
+ENVFILE    ?= $(SYSCONFDIR)/default/phomemo-printer-app
 
 # Exported so cargo, cbindgen and this Makefile agree on where artifacts live.
 # This deliberately overrides any `build.target-dir` from .cargo/config.toml:
@@ -24,14 +35,11 @@ export CARGO_TARGET_DIR
 # The application's version: phomemo-pappl's, so that its Cargo.toml is the
 # one place it is set. `cargo pkgid` prints a package ID ending in "#0.1.0"
 # (or "#phomemo-pappl@0.1.0"). A literal "#" needs a variable to work with
-# GNU make before and after 4.3.
+# GNU make before and after 4.3. Looked up once, when first needed, so that
+# targets which compile nothing do not run cargo.
 HASH    := \#
-VERSION := $(lastword $(subst @, ,$(subst $(HASH), ,$(shell $(CARGO) pkgid --offline -p phomemo-pappl))))
-
-# Pin to PAPPL 1.x — the driver uses 1.4 callback signatures.
-# A clean migration to pappl2 (different ABI) should be a separate effort.
-PAPPL_CFLAGS := $(shell pkg-config --cflags pappl 2>/dev/null)
-PAPPL_LIBS   := $(shell pkg-config --libs   pappl 2>/dev/null)
+VERSION  = $(eval VERSION := $(lastword $(subst @, ,$(subst $(HASH), ,$(shell \
+             $(CARGO) pkgid --offline -p phomemo-pappl)))))$(VERSION)
 
 RUST_LIB  := $(CARGO_TARGET_DIR)/release/libphomemo_pappl.a
 # Native libraries the staticlib needs, written by rustc itself
@@ -42,8 +50,10 @@ CARGO_BUILD_LIB := $(CARGO) rustc --release --locked -p phomemo-pappl --lib -- \
 
 GEN_HDR   := generated/phomemo_pappl.h
 BIN       := phomemo-printer-app
-UNIT_FILE := systemd/phomemo-printer-app.service
-ENV_FILE_EXAMPLE := systemd/phomemo-printer-app.env.example
+UNIT      := phomemo-printer-app.service
+UNIT_IN   := systemd/$(UNIT).in
+ROOT_DROPIN := systemd/root.conf
+ENV_EXAMPLE := systemd/phomemo-printer-app.env.example
 
 C_SRCS    := c/main.c c/driver.c c/device_bt.c c/media.c
 C_HDRS    := c/phomemo.h
@@ -56,13 +66,28 @@ WARN_CFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 \
                -Wstrict-prototypes -Wmissing-prototypes -Wvla
 C_FLAGS_ALL = $(STD_CFLAGS) $(WARN_CFLAGS) -DPHOMEMO_VERSION='"$(VERSION)"' \
               $(CPPFLAGS) $(CFLAGS) -I generated $(PAPPL_CFLAGS)
+# PAPPL 1.x - the driver uses the 1.4 callback signatures; a migration to
+# pappl2 (a different ABI) is a separate effort. Looked up only for the
+# goals that compile C, so that the others need neither PAPPL nor
+# pkg-config, and an error, with pkg-config's own explanation, if missing.
+PAPPL_PKG := pappl >= 1.4
+C_GOALS   := all $(BIN) c-lint $(C_LINT) ci check
+ifneq ($(filter $(C_GOALS),$(or $(MAKECMDGOALS),all)),)
+  ifneq ($(shell $(PKG_CONFIG) --print-errors --exists '$(PAPPL_PKG)' && echo found),found)
+    $(error $(PAPPL_PKG) not found by $(PKG_CONFIG): install PAPPL's development \
+            files, or point PKG_CONFIG_PATH at them)
+  endif
+  PAPPL_CFLAGS := $(shell $(PKG_CONFIG) --cflags '$(PAPPL_PKG)')
+  PAPPL_LIBS   := $(shell $(PKG_CONFIG) --libs '$(PAPPL_PKG)')
+endif
+
 # Sources cbindgen reads, plus their directories so that adding, removing or
 # renaming a module also regenerates the header.
 PAPPL_CRATE_SRCS := $(shell find phomemo-pappl/src -name '*.rs')
 PAPPL_CRATE_DIRS := $(shell find phomemo-pappl/src -type d)
 
-.PHONY: all rust header clean test lint c-lint $(C_LINT) fmt fmt-check check FORCE \
-        install uninstall install-systemd uninstall-systemd
+.PHONY: all rust header clean test lint c-lint $(C_LINT) fmt fmt-check ci check FORCE \
+        install uninstall install-unit install-systemd uninstall-systemd
 
 all: $(BIN)
 
@@ -119,26 +144,68 @@ fmt:
 fmt-check:
 	$(CARGO) fmt --all --check
 
-# Everything CI runs.
-check: fmt-check lint test c-lint all
+# What CI runs besides `nix flake check`, which builds the package; and
+# that plus the build, to run before pushing.
+ci: fmt-check lint test c-lint
+check: ci all
 
-install: $(BIN)
-	install -d "$(DESTDIR)$(BINDIR)"
-	install -m 0755 "$(BIN)" "$(DESTDIR)$(BINDIR)/$(BIN)"
+# Installation. These targets build nothing - the binary's prerequisites
+# would run cargo, as root under sudo - so `install` refuses to run before
+# `make` has.
+install:
+	@test -x "$(BIN)" || { echo "$(BIN) is not built: run 'make' first." >&2; exit 1; }
+	$(INSTALL) -d "$(DESTDIR)$(BINDIR)"
+	$(INSTALL) -m 0755 "$(BIN)" "$(DESTDIR)$(BINDIR)/$(BIN)"
 
 uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/$(BIN)"
 
-install-systemd: install
-	install -d "$(DESTDIR)$(SYSTEMD_DIR)"
-	install -m 0644 "$(UNIT_FILE)" "$(DESTDIR)$(SYSTEMD_DIR)/phomemo-printer-app.service"
-	install -d "$(DESTDIR)$(ENV_DIR)"
-	if [ ! -f "$(DESTDIR)$(ENV_DIR)/phomemo-printer-app" ]; then \
-	  install -m 0644 "$(ENV_FILE_EXAMPLE)" "$(DESTDIR)$(ENV_DIR)/phomemo-printer-app"; \
-	fi
+# The systemd unit, made from its template with this installation's paths,
+# which go in as sed replacements (& and the delimiter | escaped) into a
+# unit file (systemd's specifier character % doubled). systemd would split
+# them at whitespace and unescape backslashes, so those are refused.
+unit_path = $(subst %,%%,$(subst |,\|,$(subst &,\&,$(1))))
 
-uninstall-systemd:
-	rm -f "$(DESTDIR)$(SYSTEMD_DIR)/phomemo-printer-app.service"
+install-unit:
+	@case "$(BINDIR)$(DATADIR)$(ENVFILE)" in *[[:space:]\\]*) \
+	  echo "BINDIR, DATADIR and ENVFILE cannot contain whitespace or backslashes." >&2; \
+	  exit 1;; esac
+	$(INSTALL) -d "$(DESTDIR)$(UNITDIR)"
+	sed -e 's|@BINDIR@|$(call unit_path,$(BINDIR))|g' \
+	    -e 's|@DATADIR@|$(call unit_path,$(DATADIR))|g' \
+	    -e 's|@ENVFILE@|$(call unit_path,$(ENVFILE))|g' \
+	  "$(UNIT_IN)" > "$(DESTDIR)$(UNITDIR)/$(UNIT)"
+	chmod 0644 "$(DESTDIR)$(UNITDIR)/$(UNIT)"
+	$(INSTALL) -d "$(DESTDIR)$(DATADIR)/phomemo-printer-app"
+	$(INSTALL) -m 0644 "$(ROOT_DROPIN)" "$(DESTDIR)$(DATADIR)/phomemo-printer-app/root.conf"
+
+# The service: binary, unit, and a configuration file to edit, which is
+# never overwritten.
+install-systemd: install install-unit
+	@if [ -e "$(DESTDIR)$(ENVFILE)" ]; then \
+	  echo "Keeping the existing $(DESTDIR)$(ENVFILE)."; \
+	else \
+	  echo "Installing $(DESTDIR)$(ENVFILE)."; \
+	  $(INSTALL) -d "$(DESTDIR)$(dir $(ENVFILE))" && \
+	  $(INSTALL) -m 0644 "$(ENV_EXAMPLE)" "$(DESTDIR)$(ENVFILE)"; \
+	fi
+	@if [ "$(UNITDIR)" != /etc/systemd/system ] && \
+	    [ -e "$(DESTDIR)/etc/systemd/system/$(UNIT)" ]; then \
+	  echo "Warning: $(DESTDIR)/etc/systemd/system/$(UNIT), which earlier" \
+	       "versions installed, overrides this unit: see Upgrading in" \
+	       "README.md." >&2; \
+	fi
+	@test -n "$(DESTDIR)" || printf '%s\n' "" \
+	  "Configure the service in $(ENVFILE), then start it:" \
+	  "  systemctl daemon-reload" \
+	  "  systemctl enable --now $(UNIT)"
+
+# Removes what install-systemd installed except the configuration file,
+# which may have been edited; disable the service first.
+uninstall-systemd: uninstall
+	rm -f "$(DESTDIR)$(UNITDIR)/$(UNIT)" "$(DESTDIR)$(DATADIR)/phomemo-printer-app/root.conf"
+	@rmdir "$(DESTDIR)$(DATADIR)/phomemo-printer-app" 2>/dev/null || :
+	@echo "Kept $(DESTDIR)$(ENVFILE) and the state in /var/lib/phomemo-printer-app."
 
 clean:
 	$(CARGO) clean

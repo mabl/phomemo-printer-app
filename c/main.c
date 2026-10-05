@@ -28,11 +28,31 @@ _Static_assert(sizeof(PHOMEMO_VERSION) > 1, "PHOMEMO_VERSION is empty");
 // to declare.
 extern char **environ;
 
+// The service's runtime directory, RuntimeDirectory= in its unit, where it
+// listens for the sub-commands at NAME.sock.
+//
+// A sub-command looks for a server at its own user's socket, then at a root
+// server's: papplMainloop's /run/NAME.sock, or SNAP_COMMON/NAME.sock while
+// SNAP_COMMON is set (mainloop-support.c). Set for a server, that variable
+// would also move its configuration files and default state file. So main
+// clears it, and sets it for the sub-commands while the service runs; a
+// root service sets it only once papplMainloop has read its configuration
+// (system_cb), and any other service listens there itself. A build may
+// move it, e.g. to test the service as a user unit.
+//
+// The service is the server systemd gives this directory: RUNTIME_DIRECTORY,
+// a colon-separated list, names it. Merely being able to write it is not
+// enough: a root server started by hand would take the socket over.
+#ifndef SERVICE_DIRECTORY
+#  define SERVICE_DIRECTORY "/run/phomemo-printer-app"
+#endif
+
 // What main hands papplMainloop's callbacks as their data.
 typedef struct {
     const char        *name;         // the program's name, for messages
     pappl_pr_driver_t *drivers;      // one driver per model
     int                num_drivers;
+    bool               server;       // whether the sub-command is "server"
 } app_t;
 
 // ---------------------------------------------------------------------------
@@ -51,6 +71,7 @@ typedef struct {
     const char      *log_file;         // "-" is stderr
     pappl_loglevel_t log_level;
     const char      *spool_directory;  // NULL for a temporary directory
+    const char      *state_file;       // NULL for papplMainloop's choice
     bool             tls_only;
 } settings_t;
 
@@ -124,6 +145,11 @@ static bool set_spool_directory(settings_t *settings, const char *value) {
     return true;
 }
 
+static bool set_state_file(settings_t *settings, const char *value) {
+    settings->state_file = value;
+    return true;
+}
+
 static bool set_tls_only(settings_t *settings, const char *value) {
     static const struct {
         const char *name;
@@ -176,6 +202,8 @@ static const setting_t settings_table[] = {
             set_log_level, log_level),
     SETTING("spool-directory", "PHOMEMO_SPOOL_DIRECTORY", "a directory",
             set_spool_directory, spool_directory),
+    SETTING("state-file", "PHOMEMO_STATE_FILE", "a file name",
+            set_state_file, state_file),
     SETTING("tls-only", "PHOMEMO_TLS_ONLY", "1, true, yes, on, 0, false, no or off",
             set_tls_only, tls_only),
 };
@@ -231,10 +259,38 @@ static bool is_local_listener(const char *hostname) {
 // PAPPL callbacks
 // ---------------------------------------------------------------------------
 
+// Whether this process is the service: whether systemd made SERVICE_DIRECTORY
+// one of its runtime directories.
+static bool is_service(void) {
+    const char *list = getenv("RUNTIME_DIRECTORY");
+    const size_t length = strlen(SERVICE_DIRECTORY);
+
+    for (const char *dir = list; dir; dir = strchr(dir, ':')) {
+        if (*dir == ':')
+            dir++;
+        if (!strncmp(dir, SERVICE_DIRECTORY, length) && (!dir[length] || dir[length] == ':'))
+            return true;
+    }
+    return false;
+}
+
+// The system's save callback: save its state to the file `data` names.
+static bool save_state_cb(pappl_system_t *system, void *data) {
+    return papplSystemSaveState(system, data);
+}
+
 // papplMainloop's system callback: create the system, local-first.
 static pappl_system_t *system_cb(int num_options, cups_option_t *options, void *data) {
     const app_t *app = data;
     settings_t settings = settings_load(app, num_options, options);
+
+    // The service, as root, has papplMainloop's own domain socket listener,
+    // which is added after this callback and reads SNAP_COMMON again, put in
+    // SERVICE_DIRECTORY; it sets the variable before the system can start
+    // threads. Run as any other user, it listens there itself, below.
+    bool service = app->server && is_service();
+    if (service && !getuid())
+        setenv("SNAP_COMMON", SERVICE_DIRECTORY, 1);
 
     // Multi-queue: the Bluetooth connection manager keeps one link per
     // printer address, so several printers can coexist.
@@ -264,7 +320,25 @@ static pappl_system_t *system_cb(int num_options, cups_option_t *options, void *
     if (!system)
         return NULL;
 
-    papplSystemAddListeners(system, settings.listen_hostname);
+    if (app->server && auth_service && geteuid())
+        papplLog(system, PAPPL_LOGLEVEL_WARN,
+                 "Not running as root, so logins through PAM service \"%s\" fail for "
+                 "accounts other than this one when pam_unix checks them: run the "
+                 "service as root with its drop-in root.conf for remote logins.",
+                 auth_service);
+
+    // papplMainloop also creates a system to list its drivers, which needs
+    // neither listeners nor state.
+    if (app->server)
+        papplSystemAddListeners(system, settings.listen_hostname);
+
+    if (service && getuid()) {
+        char socket_path[256];
+        int length = snprintf(socket_path, sizeof(socket_path),
+                              SERVICE_DIRECTORY "/%s.sock", app->name);
+        if (length > 0 && (size_t)length < sizeof(socket_path))
+            papplSystemAddListeners(system, socket_path);
+    }
 
     if (settings.admin_group)
         papplSystemSetAdminGroup(system, settings.admin_group);
@@ -276,6 +350,17 @@ static pappl_system_t *system_cb(int num_options, cups_option_t *options, void *
     papplSystemSetPrinterDrivers(system, app->num_drivers, app->drivers,
                                  phomemo_autoadd_cb, phomemo_media_create_cb,
                                  phomemo_driver_cb, NULL);
+
+    // papplMainloop picks a state file only for a system without a save
+    // callback, so a configured one replaces it, and is loaded the way
+    // papplMainloop loads its own: without saved state, the printers found
+    // locally are added. The file name outlives the system: it is the
+    // environment's or papplMainloop's options', and is only ever read.
+    if (app->server && settings.state_file) {
+        papplSystemSetSaveCallback(system, save_state_cb, (void *)settings.state_file);
+        if (!papplSystemLoadState(system, settings.state_file))
+            papplSystemCreatePrinters(system, PAPPL_DEVTYPE_LOCAL, NULL, NULL);
+    }
 
     return system;
 }
@@ -564,10 +649,41 @@ static bool build_driver_table(app_t *app) {
     return true;
 }
 
+// Whether papplMainloop will run the server: whether "server" is among its
+// arguments, other than as an option's value or after "--", which precedes
+// a file name. papplMainloop accepts one sub-command anywhere.
+static bool runs_server(int argc, char *argv[]) {
+    for (int i = 1; i < argc; i++) {
+        const char *arg = argv[i];
+
+        if (!strcmp(arg, "--")) {
+            i++;
+        } else if (arg[0] == '-' && arg[1]) {
+            // As papplMainloop does (mainloop.c), once per letter but by the
+            // first letter alone: "-ad" takes no value, "-dd" two.
+            for (const char *opt = arg + 1; *opt; opt++) {
+                if (strchr("dhjmnotuv", arg[1]))  // the options taking a value
+                    i++;
+            }
+        } else if (!strcmp(arg, "server")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int main(int argc, char *argv[]) {
     const char *path = argc > 0 ? argv[0] : "phomemo-printer-app";
     const char *slash = strrchr(path, '/');
-    app_t app = { .name = slash ? slash + 1 : path };
+    app_t app = {
+        .name   = slash ? slash + 1 : path,
+        .server = runs_server(argc, argv),
+    };
+
+    // See SERVICE_DIRECTORY.
+    unsetenv("SNAP_COMMON");
+    if (!app.server && !access(SERVICE_DIRECTORY, X_OK))
+        setenv("SNAP_COMMON", SERVICE_DIRECTORY, 1);
 
     if (argc > 1 &&
         (!strcmp(argv[1], "register-cups") || !strcmp(argv[1], "unregister-cups")))

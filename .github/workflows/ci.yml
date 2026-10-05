@@ -19,9 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
-      # Caches ~/.cargo and target/; the nix dev shell's cargo uses both.
+      # Caches ~/.cargo and target/ for `make ci`; the package build in
+      # the Nix sandbox uses neither.
       - uses: Swatinem/rust-cache@v2
+      # Evaluates the flake for every system, and builds the package for
+      # this one - make, its Rust tests, make install - as `nix build` does.
       - name: nix flake check
         run: nix flake check --all-systems
-      - name: make check
-        run: nix develop --command make check
+      # Formatting, clippy, the tests and the C sources with -Werror, in the
+      # dev shell developers use: `make check` without the release build,
+      # which the step above has done.
+      - name: make ci
+        run: nix develop --command make ci

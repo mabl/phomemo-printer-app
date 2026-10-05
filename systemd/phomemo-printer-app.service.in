@@ -1,0 +1,85 @@
+# The Phomemo Printer Application as a system service, installed by
+# `make install-unit` from a template with the installation's paths.
+#
+# The server runs as a dynamic, unprivileged user: RFCOMM sockets take no
+# capability, and BlueZ 5.51 and later answer any user on D-Bus (older BlueZ
+# answers root, the lp group and console users: add SupplementaryGroups=lp).
+# The sub-commands of every account find it at
+# /run/phomemo-printer-app/phomemo-printer-app.sock. Remote web interface
+# logins through PAM's pam_unix need root, which the drop-in
+# @DATADIR@/phomemo-printer-app/root.conf switches to.
+
+[Unit]
+Description=Phomemo Printer Application
+# Ordering only: printers are reachable once bluetoothd runs, and clients'
+# connections close before the network goes down.
+After=network.target bluetooth.service
+
+[Service]
+Type=exec
+ExecStart=@BINDIR@/phomemo-printer-app server
+# SIGTERM stops PAPPL at once, so there is no ExecStop=: the `shutdown`
+# sub-command waits up to 30 seconds for PAPPL's main loop to wake.
+Restart=on-failure
+RestartSec=2s
+DynamicUser=yes
+
+# The printers and their settings, the spool, and libcups' TLS credentials,
+# which it keeps in ~/.cups/ssl for a server other than root's, in the state
+# directory; the sub-commands' socket in the runtime directory, which every
+# account may enter. The configuration file may move the state file and the
+# spool, but only within the state directory.
+StateDirectory=phomemo-printer-app
+StateDirectoryMode=0700
+RuntimeDirectory=phomemo-printer-app
+RuntimeDirectoryMode=0755
+Environment=HOME=%S/phomemo-printer-app
+Environment=PHOMEMO_STATE_FILE=%S/phomemo-printer-app/phomemo-printer-app.state
+Environment=PHOMEMO_SPOOL_DIRECTORY=%S/phomemo-printer-app/spool
+# A fixed port: PAPPL would search from 8000 + UID % 1000, and the dynamic
+# user's UID is not known in advance.
+Environment=PHOMEMO_SERVER_PORT=8000
+EnvironmentFile=-@ENVFILE@
+UMask=0077
+
+# Writable: the state and runtime directories, and the private /tmp,
+# /var/tmp and /dev/shm.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# Bluetooth needs no device node. A usb:// printer needs PrivateDevices=no
+# and DeviceAllow=char-usb_device rw in a drop-in.
+PrivateDevices=yes
+PrivateIPC=yes
+
+# Kernel and process interfaces. ProtectHostname= is left out: it would fix
+# the host name PAPPL advertises over DNS-SD and puts in its certificate at
+# the one the service started with, and the service cannot change it anyway.
+# Setting the host name in the web interface thus reaches Avahi, over D-Bus,
+# if Avahi allows it, but not sethostname() or /etc/hostname.
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+
+# AF_UNIX: D-Bus (BlueZ, Avahi) and the sub-commands' socket; AF_INET and
+# AF_INET6: IPP and the web interface; AF_NETLINK: the network interface
+# list (getifaddrs); AF_BLUETOOTH: RFCOMM.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_BLUETOOTH
+
+[Install]
+WantedBy=multi-user.target

@@ -4,30 +4,41 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs }:
     let
       systems = [
         "x86_64-linux"
         "aarch64-linux"
       ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
     in
     {
-      formatter = forAllSystems (pkgs: pkgs.nixfmt);
+      packages = forAllSystems (
+        _: pkgs: {
+          default = pkgs.callPackage ./package.nix { };
+        }
+      );
 
-      # mkShell's stdenv provides the C compiler ($CC) and GNU make.
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell {
-          packages = with pkgs; [
-            cargo
-            rustc
-            clippy
-            rustfmt
-            rust-cbindgen
-            pkg-config
-            pappl # PAPPL 1.x; the driver uses the 1.4 callback signatures
-          ];
-        };
-      });
+      # Building the package also runs the Rust tests.
+      checks = forAllSystems (
+        system: _: {
+          package = self.packages.${system}.default;
+        }
+      );
+
+      formatter = forAllSystems (_: pkgs: pkgs.nixfmt);
+
+      # The package's toolchain, plus what `make check` adds.
+      devShells = forAllSystems (
+        system: pkgs: {
+          default = pkgs.mkShell {
+            inputsFrom = [ self.packages.${system}.default ];
+            packages = with pkgs; [
+              clippy
+              rustfmt
+            ];
+          };
+        }
+      );
     };
 }

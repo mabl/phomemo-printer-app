@@ -1,6 +1,9 @@
 /target/
 /phomemo-printer-app
 /generated/
+# nix build
+/result
+/result-*
 
 # Local environment
 .env

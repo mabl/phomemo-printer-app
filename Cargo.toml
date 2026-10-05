@@ -13,3 +13,11 @@ pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
 multiple_crate_versions = "allow"
+
+# The staticlib carries all of std and every dependency until LTO prunes it.
+# Clean x86_64 builds, stripped binary: no LTO 7.4 MB in 34 s; thin LTO
+# 3.2 MB in 30 s; fat LTO 2.4 MB in 54 s, with one codegen unit 2.2 MB in
+# 73 s. Thin LTO saves most of the size for no build time. Panics still
+# unwind: discovery catches a panicking BlueZ query (bt/flight.rs).
+[profile.release]
+lto = "thin"
