@@ -53,6 +53,7 @@ mod host;
 mod options;
 mod page;
 
+use std::cell::RefCell;
 use std::error::Error as StdError;
 use std::ffi::c_uint;
 use std::fmt;
@@ -260,6 +261,33 @@ fn log_notes(log: &impl Log, notes: &[Note]) {
     }
 }
 
+/// A [`Log`] that passes each distinct warning on only the first time,
+/// remembering it in `warned`; other levels always pass.
+///
+/// Vendor option values are read for every page, but a bad one - the
+/// job's, or more likely the printer's default - is the same mistake on
+/// every page, so it is reported once per job.
+struct WarnOnce<'a, L> {
+    log: &'a L,
+    warned: &'a RefCell<Vec<(LogLevel, String)>>,
+}
+
+impl<L: Log> Log for WarnOnce<'_, L> {
+    fn log(&self, level: LogLevel, message: &str) {
+        if level >= LogLevel::Warn {
+            let mut warned = self.warned.borrow_mut();
+            if warned
+                .iter()
+                .any(|(seen_level, seen)| *seen_level == level && seen == message)
+            {
+                return;
+            }
+            warned.push((level, message.to_owned()));
+        }
+        self.log.log(level, message);
+    }
+}
+
 /// The driver's state for one job.
 #[derive(Debug)]
 pub struct Job {
@@ -268,6 +296,8 @@ pub struct Job {
     page: Option<Started>,
     sent: Sent,
     settle: Duration,
+    /// The vendor option warnings already logged ([`WarnOnce`]).
+    warned: RefCell<Vec<(LogLevel, String)>>,
 }
 
 /// A page that has been started.
@@ -291,6 +321,15 @@ impl Job {
                 longest_page: 0,
             },
             settle: SETTLE,
+            warned: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// `log`, reporting each vendor option warning once per job.
+    const fn vendor_log<'a, L: Log>(&'a self, log: &'a L) -> WarnOnce<'a, L> {
+        WarnOnce {
+            log,
+            warned: &self.warned,
         }
     }
 
@@ -394,8 +433,10 @@ impl Job {
         let Some(clip) = geometry(VerticalPolicy::Clip) else {
             return ordinary(&no_label);
         };
-        let policy =
-            options.overprint_vertical(self.context.overprint_vertical_default.as_deref(), host);
+        let policy = options.overprint_vertical(
+            self.context.overprint_vertical_default.as_deref(),
+            &self.vendor_log(host),
+        );
         let Some(geometry) = (match policy {
             VerticalPolicy::Clip => Some(clip),
             VerticalPolicy::Trailing => geometry(policy),
@@ -468,8 +509,11 @@ impl Job {
             return Err(Error::Canceled);
         }
         let options = host.options();
-        let compression = options.compression(host);
-        let bitmap = page.rasterize(options.dither(host), host)?;
+        let vendor_log = self.vendor_log(&*host);
+        let compression =
+            options.compression(self.context.compression_default.as_deref(), &vendor_log);
+        let dither = options.dither(self.context.dither_default.as_deref(), &vendor_log);
+        let bitmap = page.rasterize(dither, host)?;
         let preamble = Preamble {
             left_margin: LeftMargin::for_width(self.model.head_width_bytes(), bitmap.stride())?,
             density: Some(options.density()),
@@ -555,7 +599,8 @@ mod tests {
     use super::*;
     use crate::models::MediaSize;
     use crate::pappl::{
-        PM_CSPACE_K, PM_CSPACE_SW, PM_MEDIA_TRACKING_CONTINUOUS, PM_MEDIA_TRACKING_GAP,
+        PM_CONTENT_TEXT, PM_CSPACE_K, PM_CSPACE_SW, PM_MEDIA_TRACKING_CONTINUOUS,
+        PM_MEDIA_TRACKING_GAP,
     };
 
     /// A host that keeps what the driver writes.
@@ -707,6 +752,13 @@ mod tests {
                 overprint_vertical_default: Some("bogus".to_owned()),
                 ..stock_context()
             },
+            // The defaults PAPPL reports when none has been changed.
+            JobContext {
+                overprint_vertical_default: Some("clip".to_owned()),
+                dither_default: Some("auto".to_owned()),
+                compression_default: Some("auto".to_owned()),
+                ..stock_context()
+            },
         ];
         for context in contexts {
             for options in [
@@ -743,7 +795,7 @@ mod tests {
                 length: 3000,
             },
             ready_tracking: PM_MEDIA_TRACKING_GAP,
-            overprint_vertical_default: None,
+            ..JobContext::default()
         }
     }
 
@@ -1481,6 +1533,215 @@ mod tests {
         assert_eq!(
             host.written[host.written.len() - 4..],
             [0x1f, 0x11, 0x35, 0x00]
+        );
+    }
+
+    const COMPRESSION_ON: [u8; 4] = [0x1f, 0x11, 0x35, 0x01];
+
+    /// Print an all-white 576 x 64 page, as in
+    /// [`compression_is_used_when_it_helps`], with `context` and the job's
+    /// `phomemo-compression` set to `job_compression`.
+    fn white_page(context: JobContext, job_compression: Option<&str>) -> FakeHost {
+        let mut job = job_with("M220", context);
+        let mut host = FakeHost {
+            options: PrintOptions {
+                phomemo_compression: job_compression.map(str::to_owned),
+                ..gray_options(576, 64, PM_CSPACE_SW)
+            },
+            ..FakeHost::default()
+        };
+        print_page(&mut job, &mut host, |_| vec![255; 576]);
+        host
+    }
+
+    fn compressed(host: &FakeHost) -> bool {
+        host.written
+            .windows(COMPRESSION_ON.len())
+            .any(|window| window == COMPRESSION_ON)
+    }
+
+    #[test]
+    fn the_printer_default_compression_applies() {
+        assert!(model("M220").info().supports_compression);
+        let off = JobContext {
+            compression_default: Some("off".to_owned()),
+            ..JobContext::default()
+        };
+        // The printer's off: sent uncompressed.
+        let host = white_page(off.clone(), None);
+        assert!(!compressed(&host));
+        let page = SentPage::decode(&host.written);
+        assert_eq!((page.width_bytes, page.rows), (72, 64));
+        assert!(page.data.iter().all(|&byte| byte == 0));
+        assert!(host.warnings().is_empty(), "{:?}", host.warnings());
+        // The job's own value wins.
+        assert!(compressed(&white_page(off, Some("auto"))));
+        // The printer's auto, as PAPPL reports it by default, compresses.
+        let auto = JobContext {
+            compression_default: Some("auto".to_owned()),
+            ..JobContext::default()
+        };
+        assert!(compressed(&white_page(auto, None)));
+        // An unknown printer default is logged and taken as auto.
+        let bogus = JobContext {
+            compression_default: Some("bogus".to_owned()),
+            ..JobContext::default()
+        };
+        let host = white_page(bogus, None);
+        assert!(compressed(&host));
+        assert_eq!(host.warnings().len(), 1, "{:?}", host.warnings());
+        assert!(host.warnings()[0].contains("phomemo-compression"));
+    }
+
+    /// The bitmap of a uniform 64 x 8 page of `gray`, a photo by its
+    /// color mode and content, with `context` and the job's `dither`.
+    fn gray_page(context: JobContext, dither: Option<&str>, gray: u8) -> SentPage {
+        let mut job = job_with("M220", context);
+        let mut host = FakeHost {
+            options: PrintOptions {
+                phomemo_dither: dither.map(str::to_owned),
+                ..gray_options(64, 8, PM_CSPACE_SW)
+            },
+            ..FakeHost::default()
+        };
+        print_page(&mut job, &mut host, |_| vec![gray; 64]);
+        assert!(host.warnings().is_empty(), "{:?}", host.warnings());
+        SentPage::decode(&host.written)
+    }
+
+    #[test]
+    fn the_printer_default_dither_applies() {
+        let threshold = JobContext {
+            dither_default: Some("threshold".to_owned()),
+            ..JobContext::default()
+        };
+        // Darker than mid-gray: auto diffuses it into a mix of dots, the
+        // printer's threshold makes it solid black.
+        let auto = gray_page(JobContext::default(), None, 100);
+        let dots = auto.black().len();
+        assert!(dots > 0 && dots < 64 * 8, "{dots}");
+        let solid = gray_page(threshold.clone(), None, 100);
+        assert_eq!(solid.black().len(), 64 * 8);
+        // The printer's auto is the built-in choice.
+        let printer_auto = gray_page(
+            JobContext {
+                dither_default: Some("auto".to_owned()),
+                ..JobContext::default()
+            },
+            None,
+            100,
+        );
+        assert_eq!(printer_auto.data, auto.data);
+        // The job's own value wins, auto included.
+        let job_auto = gray_page(threshold.clone(), Some("auto"), 100);
+        assert_eq!(job_auto.data, auto.data);
+        let job_named = gray_page(threshold, Some("floyd-steinberg"), 100);
+        assert_eq!(job_named.data, auto.data);
+    }
+
+    #[test]
+    fn a_text_job_is_thresholded_whatever_the_printer_default() {
+        let atkinson = JobContext {
+            dither_default: Some("atkinson".to_owned()),
+            ..JobContext::default()
+        };
+        let mut job = job_with("M220", atkinson);
+        let mut host = FakeHost {
+            options: PrintOptions {
+                content_optimize: PM_CONTENT_TEXT,
+                ..gray_options(64, 8, PM_CSPACE_SW)
+            },
+            ..FakeHost::default()
+        };
+        print_page(&mut job, &mut host, |_| vec![100; 64]);
+        assert_eq!(SentPage::decode(&host.written).black().len(), 64 * 8);
+    }
+
+    /// The warnings of a job printing `pages` all-white pages with
+    /// `context` and the job's `options` adjusted.
+    fn job_warnings(context: JobContext, options: PrintOptions, pages: usize) -> Vec<String> {
+        let mut job = job_with("M220", context);
+        let mut host = FakeHost {
+            options,
+            ..FakeHost::default()
+        };
+        for _ in 0..pages {
+            let width = host.options.raster.width;
+            print_page(&mut job, &mut host, |_| vec![255; width]);
+        }
+        host.warnings()
+    }
+
+    #[test]
+    fn bad_vendor_values_warn_once_per_job() {
+        let bad_defaults = JobContext {
+            dither_default: Some("sierra".to_owned()),
+            compression_default: Some("max".to_owned()),
+            ..JobContext::default()
+        };
+        let options = PrintOptions {
+            phomemo_compression: None,
+            ..gray_options(16, 2, PM_CSPACE_SW)
+        };
+        let warnings = job_warnings(bad_defaults.clone(), options.clone(), 3);
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(warnings[0].contains("phomemo-compression value \"max\""));
+        assert!(warnings[1].contains("phomemo-dither value \"sierra\""));
+        // The job's own bad value, likewise.
+        let warnings = job_warnings(
+            JobContext::default(),
+            PrintOptions {
+                phomemo_dither: Some("bogus".to_owned()),
+                ..options.clone()
+            },
+            3,
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        // Each job warns again.
+        assert_eq!(job_warnings(bad_defaults, options, 1).len(), 2);
+    }
+
+    #[test]
+    fn a_bad_vertical_default_warns_once_per_job() {
+        let context = JobContext {
+            overprint_vertical_default: Some("bogus".to_owned()),
+            ..stock_context()
+        };
+        let warnings = job_warnings(context, canvas_options(352, 272, PM_CSPACE_SW), 2);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("phomemo-overprint-vertical"));
+    }
+
+    #[test]
+    fn warn_once_passes_other_levels_and_distinct_warnings() {
+        let host = FakeHost::default();
+        let warned = RefCell::new(Vec::new());
+        let log = WarnOnce {
+            log: &host,
+            warned: &warned,
+        };
+        for _ in 0..2 {
+            log.log(LogLevel::Info, "info");
+            log.log(LogLevel::Warn, "a");
+            log.log(LogLevel::Warn, "b");
+            log.log(LogLevel::Error, "a");
+        }
+        let logged: Vec<_> = host
+            .log
+            .borrow()
+            .iter()
+            .map(|(level, message)| (*level, message.clone()))
+            .collect();
+        let entry = |level, message: &str| (level, message.to_owned());
+        assert_eq!(
+            logged,
+            [
+                entry(LogLevel::Info, "info"),
+                entry(LogLevel::Warn, "a"),
+                entry(LogLevel::Warn, "b"),
+                entry(LogLevel::Error, "a"),
+                entry(LogLevel::Info, "info"),
+            ]
         );
     }
 }

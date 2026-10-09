@@ -496,7 +496,7 @@ step; the docs describe it.
 | WP1 Plan | done | `docs: plan overprint label profiles` |
 | WP2 Profile model and geometry | done | `pappl: add overprint profiles and their geometry` |
 | WP3 Raster path | done | `pappl: print overprint canvases anchored to the physical label` |
-| WP3b Printer defaults for vendor options | pending | |
+| WP3b Printer defaults for vendor options | done | `pappl: honour printer defaults for vendor options` |
 | WP4 Advertising, Media Setup, names | done | `pappl: advertise overprint canvases` |
 | WP5 Documentation and template | pending | |
 | H0 Edge probe | pending | |

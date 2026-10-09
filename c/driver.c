@@ -95,15 +95,24 @@ static const PmOps driver_ops = {
 
 // PAPPL 1.4 looks vendor defaults up in the job's attributes only, so the
 // driver applies them itself.
-void phomemo_vendor_default(pappl_printer_t *printer, const char *default_name,
-                            char *value, size_t size) {
+
+// Copy `default_name`'s value from the printer's driver attributes `attrs`
+// (NULL allowed) into `value`; empty if there is none.
+static void vendor_default(ipp_t *attrs, const char *default_name, char *value,
+                           size_t size) {
     value[0] = '\0';
-    // A copy, which is the caller's to delete.
-    ipp_t *attrs = papplPrinterGetDriverAttributes(printer);
-    ipp_attribute_t *attr = ippFindAttribute(attrs, default_name, IPP_TAG_ZERO);
+    ipp_attribute_t *attr = attrs ? ippFindAttribute(attrs, default_name, IPP_TAG_ZERO)
+                                  : NULL;
     const char *found = attr ? ippGetString(attr, 0, NULL) : NULL;
     if (found)
         papplCopyString(value, found, size);
+}
+
+void phomemo_vendor_default(pappl_printer_t *printer, const char *default_name,
+                            char *value, size_t size) {
+    // A copy, which is the caller's to delete.
+    ipp_t *attrs = papplPrinterGetDriverAttributes(printer);
+    vendor_default(attrs, default_name, value, size);
     ippDelete(attrs);
 }
 
@@ -121,9 +130,16 @@ static bool driver_rstartjob(pappl_job_t *job, pappl_pr_options_t *options,
     };
     papplCopyString(context.ready_size_name, data.media_ready[0].size_name,
                     sizeof(context.ready_size_name));
-    phomemo_vendor_default(printer, VENDOR_OVERPRINT_VERTICAL "-default",
-                           context.overprint_vertical_default,
-                           sizeof(context.overprint_vertical_default));
+    // One copy of the driver attributes for all three defaults.
+    ipp_t *attrs = papplPrinterGetDriverAttributes(printer);
+    vendor_default(attrs, VENDOR_OVERPRINT_VERTICAL "-default",
+                   context.overprint_vertical_default,
+                   sizeof(context.overprint_vertical_default));
+    vendor_default(attrs, VENDOR_DITHER "-default", context.dither_default,
+                   sizeof(context.dither_default));
+    vendor_default(attrs, VENDOR_COMPRESSION "-default", context.compression_default,
+                   sizeof(context.compression_default));
+    ippDelete(attrs);
 
     PmJob *ctx = pm_job_start(data.extension, context, &driver_ops, job, options,
                               device);

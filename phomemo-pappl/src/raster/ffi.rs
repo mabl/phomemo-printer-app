@@ -114,6 +114,10 @@ pub struct PmJobContext {
     pub ready_tracking: c_ushort,
     /// The printer's `phomemo-overprint-vertical-default`; empty if none.
     pub overprint_vertical_default: [c_char; PM_VENDOR_VALUE_SIZE],
+    /// The printer's `phomemo-dither-default`; empty if none.
+    pub dither_default: [c_char; PM_VENDOR_VALUE_SIZE],
+    /// The printer's `phomemo-compression-default`; empty if none.
+    pub compression_default: [c_char; PM_VENDOR_VALUE_SIZE],
 }
 
 impl PmJobContext {
@@ -127,6 +131,8 @@ impl PmJobContext {
             },
             ready_tracking: self.ready_tracking,
             overprint_vertical_default: fixed_string(&self.overprint_vertical_default),
+            dither_default: fixed_string(&self.dither_default),
+            compression_default: fixed_string(&self.compression_default),
         }
     }
 }
@@ -573,6 +579,8 @@ mod tests {
             ready_length: 0,
             ready_tracking: 0,
             overprint_vertical_default: [0; PM_VENDOR_VALUE_SIZE],
+            dither_default: [0; PM_VENDOR_VALUE_SIZE],
+            compression_default: [0; PM_VENDOR_VALUE_SIZE],
         }
     }
 
@@ -805,6 +813,8 @@ mod tests {
             ready_length: 3000,
             ready_tracking: PM_MEDIA_TRACKING_GAP,
             overprint_vertical_default: chars("trailing"),
+            dither_default: chars("floyd-steinberg"),
+            compression_default: chars("off"),
         };
         assert_eq!(
             context.read(),
@@ -816,6 +826,8 @@ mod tests {
                 },
                 ready_tracking: PM_MEDIA_TRACKING_GAP,
                 overprint_vertical_default: Some("trailing".to_owned()),
+                dither_default: Some("floyd-steinberg".to_owned()),
+                compression_default: Some("off".to_owned()),
             }
         );
         // Empty strings are none.
@@ -825,17 +837,32 @@ mod tests {
         let unterminated = PmJobContext {
             ready_size_name: chars(&long),
             overprint_vertical_default: chars(&long),
+            dither_default: chars(&"d".repeat(100)),
+            compression_default: chars(&"c".repeat(100)),
             ..no_context()
         };
         assert_eq!(
             unterminated.ready_size_name.last(),
             Some(&c_char::from_ne_bytes(*b"x"))
         );
+        assert_eq!(
+            unterminated.dither_default.last(),
+            Some(&c_char::from_ne_bytes(*b"d"))
+        );
+        assert_eq!(
+            unterminated.compression_default.last(),
+            Some(&c_char::from_ne_bytes(*b"c"))
+        );
         let read = unterminated.read();
         assert_eq!(read.ready_name, "x".repeat(PM_MEDIA_NAME_SIZE));
         assert_eq!(
             read.overprint_vertical_default,
             Some("x".repeat(PM_VENDOR_VALUE_SIZE))
+        );
+        assert_eq!(read.dither_default, Some("d".repeat(PM_VENDOR_VALUE_SIZE)));
+        assert_eq!(
+            read.compression_default,
+            Some("c".repeat(PM_VENDOR_VALUE_SIZE))
         );
         // Bytes after a NUL are not part of the string.
         let mut after_nul = chars::<PM_VENDOR_VALUE_SIZE>("clip");

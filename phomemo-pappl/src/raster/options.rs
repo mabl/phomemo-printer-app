@@ -72,6 +72,10 @@ pub struct JobContext {
     pub ready_tracking: c_ushort,
     /// The printer's `phomemo-overprint-vertical-default`, if it has one.
     pub overprint_vertical_default: Option<String>,
+    /// The printer's `phomemo-dither-default`, if it has one.
+    pub dither_default: Option<String>,
+    /// The printer's `phomemo-compression-default`, if it has one.
+    pub compression_default: Option<String>,
 }
 
 impl JobContext {
@@ -165,10 +169,7 @@ impl PrintOptions {
         printer_default: Option<&str>,
         log: &impl Log,
     ) -> VerticalPolicy {
-        let value = [self.phomemo_overprint_vertical.as_deref(), printer_default]
-            .into_iter()
-            .flatten()
-            .find(|value| !value.is_empty());
+        let value = vendor_value(self.phomemo_overprint_vertical.as_deref(), printer_default);
         vendor_option("phomemo-overprint-vertical", value, log).unwrap_or_default()
     }
 
@@ -217,36 +218,76 @@ impl PrintOptions {
 
     /// The dithering algorithm for grayscale pages.
     ///
-    /// `phomemo-dither` names one, or `auto` (the default) chooses:
-    /// thresholding for `bi-level` color mode, which IPP defines as
-    /// thresholded black and white, and for text; Floyd-Steinberg for
-    /// everything else.
-    pub fn dither(&self, log: &impl Log) -> Algorithm {
-        let choice = vendor_option("phomemo-dither", self.phomemo_dither.as_deref(), log);
-        match choice.unwrap_or_default() {
-            DitherChoice::Algorithm(algorithm) => algorithm,
-            DitherChoice::Auto
-                if self.color_mode == PM_COLOR_MODE_BI_LEVEL
-                    || matches!(
-                        self.content_optimize,
-                        PM_CONTENT_TEXT | PM_CONTENT_TEXT_AND_GRAPHIC
-                    ) =>
-            {
-                Algorithm::Threshold
+    /// The job's `phomemo-dither` names one, or `auto` (the built-in
+    /// default) chooses: thresholding for `bi-level` color mode, which IPP
+    /// defines as thresholded black and white, and for text; else the
+    /// printer's default for it (`printer_default`) if that names an
+    /// algorithm; else Floyd-Steinberg.
+    ///
+    /// So the printer's default replaces only `auto`'s choice for photos: a
+    /// job that asks for bi-level or text is still thresholded, as the job
+    /// itself asked, while a job's explicit `phomemo-dither` - `auto`
+    /// included - is taken as it is. An empty value counts as none; an
+    /// unknown one, the job's or the printer's, is logged and taken as
+    /// `auto`, not as the next value in line, as for
+    /// [`compression`](Self::compression).
+    pub fn dither(&self, printer_default: Option<&str>, log: &impl Log) -> Algorithm {
+        let thresholded = self.color_mode == PM_COLOR_MODE_BI_LEVEL
+            || matches!(
+                self.content_optimize,
+                PM_CONTENT_TEXT | PM_CONTENT_TEXT_AND_GRAPHIC
+            );
+        let job = self
+            .phomemo_dither
+            .as_deref()
+            .filter(|value| !value.is_empty());
+        let choice = if job.is_some() {
+            vendor_option("phomemo-dither", job, log).unwrap_or_default()
+        } else {
+            // Parsed, and an unknown one warned about, whatever the page:
+            // the printer's setting is wrong either way.
+            let printer = printer_default.filter(|value| !value.is_empty());
+            match vendor_option("phomemo-dither", printer, log) {
+                Some(DitherChoice::Algorithm(algorithm)) if !thresholded => {
+                    DitherChoice::Algorithm(algorithm)
+                }
+                _ => DitherChoice::Auto,
             }
+        };
+        match choice {
+            DitherChoice::Algorithm(algorithm) => algorithm,
+            DitherChoice::Auto if thresholded => Algorithm::Threshold,
             DitherChoice::Auto => Algorithm::FloydSteinberg,
         }
     }
 
-    /// Whether to compress the raster, from `phomemo-compression`.
-    pub fn compression(&self, log: &impl Log) -> Compression {
-        vendor_option(
-            "phomemo-compression",
-            self.phomemo_compression.as_deref(),
-            log,
-        )
-        .unwrap_or_default()
+    /// Whether to compress the raster: the job's `phomemo-compression`,
+    /// else the printer's default for it (`printer_default`), else
+    /// [`Compression::Auto`]. An empty value counts as none. An unknown
+    /// value is logged and taken as `auto`, not replaced by the next value
+    /// in line: a job that asks for something specific gets a warning
+    /// rather than a quietly different setting.
+    pub fn compression(&self, printer_default: Option<&str>, log: &impl Log) -> Compression {
+        let value = vendor_value(self.phomemo_compression.as_deref(), printer_default);
+        vendor_option("phomemo-compression", value, log).unwrap_or_default()
     }
+}
+
+/// The vendor option value that applies: the job's, else the printer's
+/// default (`printer_default`), skipping empty ones.
+///
+/// PAPPL 1.4 looks vendor defaults up only in the job's own attributes, so
+/// a default set on the printer reaches the driver only this way (plan,
+/// D7). Only presence decides: a job value that does not parse still wins
+/// over the printer's default, and is then logged and replaced by the
+/// built-in default, as it was before printer defaults were applied - a
+/// job that asks for something specific gets a warning rather than a
+/// quietly different setting.
+fn vendor_value<'a>(job: Option<&'a str>, printer_default: Option<&'a str>) -> Option<&'a str> {
+    [job, printer_default]
+        .into_iter()
+        .flatten()
+        .find(|value| !value.is_empty())
 }
 
 /// Parse vendor option `name`'s `value`, logging one that does not parse.
@@ -446,6 +487,15 @@ mod tests {
     }
 
     fn dither(value: Option<&str>, color_mode: c_uint, content: c_uint) -> (Algorithm, Messages) {
+        dither_with(value, None, color_mode, content)
+    }
+
+    fn dither_with(
+        value: Option<&str>,
+        printer: Option<&str>,
+        color_mode: c_uint,
+        content: c_uint,
+    ) -> (Algorithm, Messages) {
         let messages = Messages::default();
         let options = PrintOptions {
             phomemo_dither: value.map(str::to_owned),
@@ -453,7 +503,107 @@ mod tests {
             content_optimize: content,
             ..PrintOptions::default()
         };
-        (options.dither(&messages), messages)
+        (options.dither(printer, &messages), messages)
+    }
+
+    /// Log levels only.
+    fn levels(messages: &Messages) -> Vec<LogLevel> {
+        messages
+            .0
+            .borrow()
+            .iter()
+            .map(|(level, _)| *level)
+            .collect()
+    }
+
+    #[test]
+    fn dither_falls_back_in_order() {
+        use Algorithm::{Atkinson, Bayer8, FloydSteinberg, Threshold};
+        let photo = |job, printer| {
+            let (algorithm, messages) = dither_with(job, printer, 0, 0);
+            (algorithm, levels(&messages))
+        };
+        // The job's value, then the printer's default, then auto.
+        assert_eq!(photo(Some("bayer8"), Some("atkinson")), (Bayer8, vec![]));
+        assert_eq!(photo(None, Some("atkinson")), (Atkinson, vec![]));
+        assert_eq!(photo(None, Some("THRESHOLD")), (Threshold, vec![]));
+        assert_eq!(photo(None, None), (FloydSteinberg, vec![]));
+        // A job's explicit auto beats a printer default.
+        assert_eq!(
+            photo(Some("auto"), Some("threshold")),
+            (FloydSteinberg, vec![])
+        );
+        // An empty value is none.
+        assert_eq!(photo(Some(""), Some("atkinson")), (Atkinson, vec![]));
+        assert_eq!(photo(Some(""), Some("")), (FloydSteinberg, vec![]));
+        // A printer default of auto still chooses from the job.
+        assert_eq!(
+            dither_with(None, Some("auto"), 0, PM_CONTENT_TEXT).0,
+            Threshold
+        );
+    }
+
+    #[test]
+    fn unknown_dither_is_logged_and_not_replaced_by_the_next_value() {
+        // An unknown job value is auto, not the printer's default.
+        let (algorithm, messages) = dither_with(Some("sierra"), Some("atkinson"), 0, 0);
+        assert_eq!(algorithm, Algorithm::FloydSteinberg);
+        assert_eq!(levels(&messages), [LogLevel::Warn]);
+        // An unknown printer default is logged and ignored.
+        let (algorithm, messages) = dither_with(None, Some("bogus"), 0, 0);
+        assert_eq!(algorithm, Algorithm::FloydSteinberg);
+        assert_eq!(
+            *messages.0.borrow(),
+            [(
+                LogLevel::Warn,
+                "Ignoring unknown phomemo-dither value \"bogus\".".to_owned()
+            )]
+        );
+        // Warned about on a thresholded page too.
+        let (algorithm, messages) = dither_with(None, Some("bogus"), PM_COLOR_MODE_BI_LEVEL, 0);
+        assert_eq!(algorithm, Algorithm::Threshold);
+        assert_eq!(levels(&messages), [LogLevel::Warn]);
+    }
+
+    #[test]
+    fn the_printer_default_dither_replaces_only_autos_photo_choice() {
+        use Algorithm::{Atkinson, FloydSteinberg, Threshold};
+        let quiet = |job, printer, color_mode, content| {
+            let (algorithm, messages) = dither_with(job, printer, color_mode, content);
+            assert!(messages.0.borrow().is_empty(), "{:?}", messages.0.borrow());
+            algorithm
+        };
+        for printer in ["atkinson", "floyd-steinberg", "bayer8"] {
+            // Bi-level and text are still thresholded.
+            assert_eq!(
+                quiet(None, Some(printer), PM_COLOR_MODE_BI_LEVEL, 0),
+                Threshold,
+                "{printer}"
+            );
+            for content in [PM_CONTENT_TEXT, PM_CONTENT_TEXT_AND_GRAPHIC] {
+                assert_eq!(
+                    quiet(None, Some(printer), 0, content),
+                    Threshold,
+                    "{printer}"
+                );
+            }
+        }
+        // A photo takes the printer's default.
+        assert_eq!(quiet(None, Some("atkinson"), 0, 0), Atkinson);
+        // The job's own named value wins on any page.
+        assert_eq!(
+            quiet(Some("atkinson"), Some("bayer8"), PM_COLOR_MODE_BI_LEVEL, 0),
+            Atkinson
+        );
+        assert_eq!(
+            quiet(
+                Some("floyd-steinberg"),
+                Some("atkinson"),
+                0,
+                PM_CONTENT_TEXT
+            ),
+            FloydSteinberg
+        );
     }
 
     #[test]
@@ -491,12 +641,16 @@ mod tests {
     }
 
     fn compression(value: Option<&str>) -> (Compression, Messages) {
+        compression_with(value, None)
+    }
+
+    fn compression_with(value: Option<&str>, printer: Option<&str>) -> (Compression, Messages) {
         let messages = Messages::default();
         let options = PrintOptions {
             phomemo_compression: value.map(str::to_owned),
             ..PrintOptions::default()
         };
-        (options.compression(&messages), messages)
+        (options.compression(printer, &messages), messages)
     }
 
     #[test]
@@ -505,6 +659,42 @@ mod tests {
         assert_eq!(compression(Some("auto")).0, Compression::Auto);
         assert_eq!(compression(Some("ON")).0, Compression::On);
         assert_eq!(compression(Some("off")).0, Compression::Off);
+    }
+
+    #[test]
+    fn compression_falls_back_in_order() {
+        use Compression::{Auto, Off, On};
+        let mode = |job, printer| {
+            let (mode, messages) = compression_with(job, printer);
+            (mode, levels(&messages))
+        };
+        // The job's value, then the printer's default, then auto.
+        assert_eq!(mode(Some("on"), Some("off")), (On, vec![]));
+        assert_eq!(mode(Some("auto"), Some("off")), (Auto, vec![]));
+        assert_eq!(mode(None, Some("off")), (Off, vec![]));
+        assert_eq!(mode(None, Some("On")), (On, vec![]));
+        assert_eq!(mode(None, None), (Auto, vec![]));
+        // An empty value is none.
+        assert_eq!(mode(Some(""), Some("off")), (Off, vec![]));
+        assert_eq!(mode(Some(""), Some("")), (Auto, vec![]));
+    }
+
+    #[test]
+    fn unknown_compression_is_logged_and_not_replaced_by_the_next_value() {
+        use Compression::Auto;
+        let mode = |job, printer| {
+            let (mode, messages) = compression_with(job, printer);
+            (mode, levels(&messages))
+        };
+        // An unknown job value is auto, not the printer's default.
+        assert_eq!(mode(Some("max"), Some("off")), (Auto, vec![LogLevel::Warn]));
+        // An unknown printer default is logged and ignored.
+        assert_eq!(mode(None, Some("bogus")), (Auto, vec![LogLevel::Warn]));
+        let (_, messages) = compression_with(None, Some("bogus"));
+        assert_eq!(
+            messages.0.borrow()[0].1,
+            "Ignoring unknown phomemo-compression value \"bogus\"."
+        );
     }
 
     fn vertical(job: Option<&str>, printer: Option<&str>) -> (VerticalPolicy, Vec<LogLevel>) {
@@ -601,7 +791,7 @@ mod tests {
                 length: 3000,
             },
             ready_tracking: PM_MEDIA_TRACKING_GAP,
-            overprint_vertical_default: None,
+            ..JobContext::default()
         };
         assert_eq!(context.ready().name, "om_40x30mm_40x30mm");
         assert_eq!(context.ready_tracking(), Some(MediaTracking::Gap));
