@@ -498,7 +498,7 @@ step; the docs describe it.
 | WP3 Raster path | done | `pappl: print overprint canvases anchored to the physical label` |
 | WP3b Printer defaults for vendor options | done | `pappl: honour printer defaults for vendor options` |
 | WP4 Advertising, Media Setup, names | done | `pappl: advertise overprint canvases` |
-| WP5 Documentation and template | pending | |
+| WP5 Documentation and template | done | `docs: document overprint labels` |
 | H0 Edge probe | pending | |
 | H1 Horizontal anchor and `clip` | pending | |
 | H2 `trailing` | pending | |

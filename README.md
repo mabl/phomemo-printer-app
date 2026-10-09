@@ -256,6 +256,16 @@ its fixed port: `--port`, or `PHOMEMO_SERVER_PORT`. `--replace` recreates an
 existing queue. They exit with 0 on success, 2 for invalid arguments, and 1
 on any other failure, including when `lpstat` or `lpadmin` is missing.
 
+## Overprint labels
+
+On the M220 with 40 x 30 mm labels, a design can be laid out on a
+44 x 34 mm page with 2 mm of bleed around the label, so that backgrounds
+reach past its edges; the driver prints it 1:1, anchored to the label, and
+drops the bleed it does not print. A CUPS queue created before overprint
+support must be recreated with `register-cups --replace` to offer the
+size. [docs/overprint.md](docs/overprint.md) describes what prints, how to
+design and print, and has a template; hardware validation is pending.
+
 ## Troubleshooting
 
 - **The printer is not listed.** Only printers paired with BlueZ are, and
