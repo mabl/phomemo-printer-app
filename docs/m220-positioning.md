@@ -281,13 +281,110 @@ instead.
 
 The print sequence follows the driver's encoder and transport.
 
+## Overprint validation (2026-10-09)
+
+Hardware steps H0-H2 of [overprint-plan.md](overprint-plan.md), on the same
+M220 (firmware 3.0.1) with 40 x 30 mm gap labels: 5 labels in total. H1 and
+H2 printed through a dev server built from commit `c4974eb` and a temporary
+driverless CUPS queue, `phomemo-dev`, made with `register-cups`; its PPD
+listed `*PageSize 44x34mm.Borderless`. The PDFs were made with Inkscape
+from SVGs. Positions were read by eye on the printed labels.
+
+### H0 - Edge probe (1 label)
+
+Method: one raster sent directly over RFCOMM, outside the driver: 72 bytes
+(576 dots) wide, 200 rows, `LEFT_MARGIN` 0, gap mode, after `ESC @`.
+
+| Rows | Content |
+| --- | --- |
+| 0-159 | 1-dot ticks from head dot 224 to 575: every 4 dots (rows 100-159), every 16 (rows 60-159), every 64 (rows 0-159) |
+| 0-159 | 3-dot ticks at dots 255-257 and 573-575 |
+| 176-191 | Solid bar, dots 224-575 (44 mm) |
+
+| Observation | Reading |
+| --- | --- |
+| Dot 255-257 tick | A thin sliver, about 0.5 mm, at the sticker's left edge |
+| Dot 573-575 tick | At the very edge on the right, about a dot thin |
+| Backing liner | Nothing visible: it is not thermal paper |
+
+The label spans about head dots 256-575, within the ±4-dot criterion at
+both edges: **pass**. The label's right edge is at or within a couple of
+dots of the head's last dot, so there is no right-edge clearance and right
+bleed cannot print. The left
+bleed (dots 240-255) falls off the sticker onto the liner, where it leaves
+no mark.
+
+### H1 - Horizontal anchor, `clip`, through CUPS (2 labels)
+
+| Job | Command | Driver log |
+| --- | --- | --- |
+| Reference | `lp -d phomemo-dev -o media=40x30mm.Borderless -o print-scaling=none reference.pdf` | 320 x 240 sent, `LEFT_MARGIN` 32, gap |
+| Overprint | `lp -d phomemo-dev -o media=44x34mm.Borderless -o print-scaling=none overprint.pdf` | raster 352 x 272; matched by media size, policy `clip`, rows 16-255; 336 x 240 sent, `LEFT_MARGIN` 30, gap |
+
+The reference is a 40 x 30 mm black page with a white frame 1 mm inside
+it; the overprint design is black over the whole 44 x 34 mm page with a
+white frame 1 mm inside the label. CUPS sent the size as
+`custom_44x34mm_44x34mm`, with no canvas name, so the driver matched it by
+media size, and logged
+"Printing the overprint design om_40x30mm-overprint-2mm_44x34mm (40 x 30
+mm + 2 mm overprint, matched by its media size) with vertical policy clip:
+canvas columns 0-335 and rows 16-255, 30 bytes from the head's start."
+
+| Observation | Result |
+| --- | --- |
+| Frame to left edge | About 1 mm on both labels; equal within about 0.3 mm (the criterion's limit; read by eye) |
+| Frame to right, top and bottom edges | About 1 mm on both labels |
+| Overprint black at the left edge | Reaches the sticker's edge; no white strip |
+| Next label | Unaffected (`clip` sends as many rows as an ordinary job) |
+
+**Pass.** The frame was about 1 mm from the top and bottom on both, so no
+vertical offset was seen.
+
+### H2 - `trailing` (2 labels)
+
+The printer default `phomemo-overprint-vertical-default` was set to
+`trailing` with an IPP Set-Printer-Attributes request to the printer's
+URI. (`phomemo-printer-app modify -u ipp://HOST:PORT/…` was refused,
+"Unsupported printer-uri uri value": the request named the server's root
+URI.) Then, twice in a row:
+
+```bash
+lp -d phomemo-dev -o media=44x34mm.Borderless -o print-scaling=none trailing.pdf
+```
+
+The design is white, with black bands at x = 0-3 mm, x = 41-44 mm and
+y = 31-34 mm (into the bleed), a white top, and a thin frame at x = 5-39
+mm, y = 4-29 mm.
+
+Both jobs logged: matched by media size, policy `trailing`, rows 16-271;
+336 x 256 sent, `LEFT_MARGIN` 30, gap; one page printed.
+
+| Observation | Result |
+| --- | --- |
+| Bottom band | Reaches the sticker's bottom edge; no white strip |
+| Second label's top edge | Clean white: no bleed spilled onto it |
+| Label sequence | Consecutive, none skipped |
+| Frames | As designed on both labels |
+
+**Pass.** The default was set back to `clip` afterwards.
+
+### Not yet tested
+
+Top (leading-edge) bleed, the `full` policy (H3), and registration beyond
+two consecutive labels.
+
 ## Open questions
 
 - Precision and longer-run repeatability of continuous-mode `ESC d` feed.
 - A repeatable first-raster origin relative to the label edge.
 - Whether `BACK_PAPER` seeks a reference, and what state it requires.
 - Whether forward compensation survives return to gap mode and raster start.
-- Registration over consecutive bleed jobs.
-- Physical right-edge clearance for horizontal bleed on these labels.
+- Registration over longer runs of bleed jobs. Two consecutive `trailing`
+  jobs printed with their frames as designed, by eye (H2); more were not
+  printed.
+- Top bleed: printing rows before the label in a real job (`full`, H3).
 - Exact meaning of the `1A 2D` sensor payload.
 - Whether `ESC J` is unsupported or requires an untested state.
+
+Answered since: the right-edge clearance for horizontal bleed is none; the
+label ends at or just short of the head's last dot (H0).

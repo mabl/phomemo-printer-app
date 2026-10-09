@@ -11,7 +11,7 @@
     right  (x 42-44 mm)  never printed: the head ends at the label's edge
     top    (y 0-2 mm)    not printed
     bottom (y 32-34 mm)  printed only with phomemo-overprint-vertical
-                         set to trailing (experimental)
+                         set to trailing
   Let backgrounds run to the page's edges; keep text inside the label.
 
   Draw in the "Artwork" layer. The "Guides (hide before printing)" layer
@@ -22,7 +22,7 @@
   (set the size in pixels; 203 dpi in Inkscape gives 352 x 272, which
   PAPPL rescales).
 
-  See docs/overprint.md. Hardware validation is pending.
+  See docs/overprint.md.
 -->
 <svg
    xmlns="http://www.w3.org/2000/svg"

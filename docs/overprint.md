@@ -6,11 +6,23 @@ bleed still cover the label's edge when the label sits slightly off
 position in the printer. The driver prints the design 1:1, anchored to the
 label rather than to the page, and drops the bleed it does not print.
 
-**Status:** the geometry below is what the driver does; it has not yet
-been validated on hardware. The edge probe, the horizontal anchor and the
-`trailing` policy (H0-H2 in the plan) are pending; see the status table in
-[overprint-plan.md](overprint-plan.md#8-status). Until they are recorded,
-treat printed results as unverified, and judge them on a test label.
+**Status:** validated on an M220 (firmware 3.0.1) on 2026-10-09: an edge
+probe sent directly, then H1-H2 through CUPS (H0-H2 in the
+[plan](overprint-plan.md#8-status); details in
+[m220-positioning.md](m220-positioning.md#overprint-validation-2026-10-09)):
+
+- The label spans about head dots 256-575, ending at or within a couple of
+  dots of the head's last dot: the right bleed cannot print.
+- A 44 x 34 mm design lands within about 0.3 mm (the criterion's limit;
+  read by eye) of an ordinary 40 x 30 mm print across the head, and its
+  left bleed covers the label's left edge.
+- With `trailing`, the bottom bleed covers the label's bottom edge, and on
+  two consecutive labels the frames printed as designed, none skipped,
+  with nothing spilled onto the next label.
+
+This was one session: two labels for `trailing`, positions read by eye.
+Registration along the feed depends on the printer's gap detection, and
+the top bleed is still not printed.
 
 ## The M220 40 x 30 mm + 2 mm design
 
@@ -50,21 +62,21 @@ x (mm)  0    2                                    42   44
 ## What prints
 
 - **Right bleed (x = 42-44 mm): never.** The label is held against the far
-  end of the head, so the head ends at the label's right edge, and the
-  driver drops these columns. (This comes from reverse-engineering; the
-  edge probe, H0, is to measure it.)
+  end of the head, so the head ends at the label's right edge (measured:
+  the label ends at or within a couple of dots of the head's last dot),
+  and the driver drops these columns.
 - **Left bleed (x = 0-2 mm): always, beside the rows sent.** It prints
-  beside the label's left edge, onto the backing when the label is in
-  place (assuming the backing extends 2 mm past the label; the H0 edge
-  probe is to confirm this), and onto the label when it sits further left.
+  beside the label's left edge: off the sticker when the label is in
+  place, and onto the label when it sits further left. The backing liner
+  is not thermal paper, so bleed that misses the sticker leaves no mark.
 - **Top bleed (y = 0-2 mm): never, for now.** In gap mode the printer
   starts each print where it detects the label, so these rows would print
   on the label and push the design down. Printing them needs a positioning
   sequence that has not been validated
   ([m220-positioning.md](m220-positioning.md)).
-- **Bottom bleed (y = 32-34 mm): only with the experimental `trailing`
-  policy** (see The vertical policy), which prints it into the gap after
-  the label.
+- **Bottom bleed (y = 32-34 mm): only with the `trailing` policy** (see
+  The vertical policy), which prints it into the gap after the label,
+  where it leaves no mark either.
 
 By default (`clip`) the printer receives the label area plus the left
 bleed: 42 x 30 mm, as long as an ordinary 40 x 30 mm print. In dots,
@@ -164,17 +176,29 @@ PDF filter: print PDFs through CUPS.
 | Keyword | Shown as | Rows sent |
 | --- | --- | --- |
 | `clip` (default) | Label only (top and bottom bleed not printed) | the label's, y = 2-32 mm |
-| `trailing` | Bottom bleed into the gap (experimental) | y = 2-34 mm |
+| `trailing` | Label and bottom bleed (top bleed not printed) | y = 2-34 mm |
 
-`trailing` prints the bottom bleed into the gap after the label. Whether
-the printer then still finds the next label correctly has not been tested
-(H2); try it on a few labels first.
+`trailing` prints the bottom bleed into the gap after the label, so the
+bottom edge is covered too. It has been validated on two consecutive
+labels: the bottom bleed reached the label's edge, the printer found the
+next label as usual (none skipped, the second label's top clean), and on
+both labels the frames printed as designed. Longer runs have not been
+tested.
 
 A job takes its own value if it has one, else the printer's default, else
-`clip`; an unknown value is logged and taken as `clip`. Set the default on
-the printer's **Printing Defaults** page in the web interface, where it is
-shown as "Overprint (vertical)". This is the only way to choose it for
-CUPS jobs. A direct job can set its own:
+`clip`; an unknown value is logged and taken as `clip`. A CUPS job cannot
+carry the option, so the printer default is the only way to choose it for
+CUPS jobs. Set it on the printer's **Printing Defaults** page (shown as
+"Overprint (vertical)"), or from the command line on the machine running
+the server:
+
+```bash
+phomemo-printer-app modify -d PRINTER \
+  -o phomemo-overprint-vertical-default=trailing
+```
+
+Run it without `-u`: with `-u ipp://…` the server refused the request
+("Unsupported printer-uri uri value"). A direct job can set its own:
 
 ```bash
 phomemo-printer-app submit -d m220 \
@@ -226,9 +250,10 @@ but ... is loaded", which is logged when other media is loaded.
 - Raw jobs (`application/vnd.phomemo-raw`) are sent as they are.
 - A page turned a quarter turn (34 x 44 mm) is not the design.
 - Registration along the feed depends on the printer's gap detection,
-  whose repeatability has not been measured; the first print's position
-  relative to the label varied by about 0.8 mm or more between
-  continuous-mode passes ([m220-positioning.md](m220-positioning.md)).
-  The top bleed, and
-  with `clip` the bottom bleed, therefore do not protect against a label
-  that sits off position along the feed.
+  whose repeatability was observed on two consecutive `trailing` labels
+  only, by eye; the
+  first print's position relative to the label varied by about 0.8 mm or
+  more between continuous-mode passes
+  ([m220-positioning.md](m220-positioning.md)). The top bleed is not
+  printed, and with `clip` neither is the bottom bleed, so they do not
+  protect against a label that sits off position along the feed.

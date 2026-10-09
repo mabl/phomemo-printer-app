@@ -21,11 +21,12 @@ The first and only initially supported profile:
 | Scaling | none: the canvas is printed 1:1 |
 
 What reaches paper depends on hardware limits (section 2): the **right**
-bleed never prints on the M220, the **left** bleed prints from the first
-release, and **bottom** and **top** bleed follow only after hardware
-validation (H2, H3). With the default policy only the left 2 mm bleed reaches
-paper; the goal of covering an off-position label is met on the left edge
-only until `trailing` (bottom) and `full` (top) are validated.
+bleed never prints on the M220 (H0: the label ends at or just short of
+the head's last dot), the **left** bleed prints from the first release,
+the **bottom** bleed prints with `trailing`, validated on 2 consecutive
+labels (H2), and the **top** bleed follows only after H3. With the default
+policy only the left 2 mm bleed reaches paper; with `trailing` the left and
+bottom edges are covered, and the top edge only once `full` is validated.
 
 The design application prints through **CUPS** (a driverless IPP Everywhere
 queue made by `phomemo-printer-app register-cups`), so that path is the one
@@ -53,7 +54,8 @@ The ordinary raster is 320 dots wide when CUPS rasterizes (it rounds) and
 so the label's first column is head dot 256 either way. Earlier
 reverse-engineering found that the label is held against the far end of the
 head, so the label's right edge is at or near the head's last dot (575) and
-**the right bleed cannot print**. H0 measures the actual edges.
+**the right bleed cannot print**. H0 confirmed it: the label spans about
+head dots 256-575.
 
 The design convention stays symmetric (44 mm canvas); the driver discards
 the right bleed. The anchor is the **label's left edge**, which must land on
@@ -100,7 +102,7 @@ the **vertical policy**:
 | Policy | Rows sent | Hardware status |
 | --- | --- | --- |
 | `clip` | `y0 .. y1` (240 rows) | Same length as an ordinary job. Default. |
-| `trailing` | `y0 .. y2`, i.e. `y0 .. min(H, y1 + bottom bleed)` (256 rows) | Bottom bleed prints into the gap; a page longer than the canvas sends no more. Unvalidated (H2). |
+| `trailing` | `y0 .. y2`, i.e. `y0 .. min(H, y1 + bottom bleed)` (256 rows) | Bottom bleed prints into the gap; a page longer than the canvas sends no more. Validated on 2 consecutive labels (H2). |
 | `full` | `0 .. H` plus a positioning prelude | Unvalidated (H3); not offered before. |
 
 `full` needs the printer to start about 2 mm before the label. The only
@@ -468,10 +470,18 @@ step; the docs describe it.
   driverless PPD; a user-defined 44 x 34 mm size still resolves (D3 case 2).
 - Client-side fit-to-page shrinks the canvas and defeats the anchor;
   documented, not detectable by the driver.
-- H0 may show the label is not exactly at the head's end; section 2 then
-  changes (e.g. a measured anchor per profile).
-- Gap-mode registration repeatability has never been measured; manual
-  readings are ±0.1 mm.
+- H0 could have shown the label off the head's end; it did not (about
+  head dots 256-575), so section 2 stands.
+- Gap-mode registration repeatability has not been measured beyond the
+  H1/H2 labels (2 consecutive `trailing` labels, frames as designed);
+  manual readings are ±0.1 mm; the H1/H2 readings were by eye (about
+  ±0.3 mm).
+- Setting the printer default from the command line:
+  `phomemo-printer-app modify -u ipp://HOST:PORT/…` was refused
+  ("Unsupported printer-uri uri value"). `modify` without `-u`, through
+  the local socket, works (verified). Remotely, use the web interface's
+  Printing Defaults or an IPP Set-Printer-Attributes request to the
+  printer's URI (as in H2).
 - Canvas PWG names are a persistence contract: PAPPL reloads
   media-col-ready/default without validation, so a canvas name must not be
   renamed or removed; if one is retired, map it to its stock at startup.
@@ -499,7 +509,7 @@ step; the docs describe it.
 | WP3b Printer defaults for vendor options | done | `pappl: honour printer defaults for vendor options` |
 | WP4 Advertising, Media Setup, names | done | `pappl: advertise overprint canvases` |
 | WP5 Documentation and template | done | `docs: document overprint labels` |
-| H0 Edge probe | pending | |
-| H1 Horizontal anchor and `clip` | pending | |
-| H2 `trailing` | pending | |
+| H0 Edge probe | done | `docs: record overprint hardware validation` |
+| H1 Horizontal anchor and `clip` | done | `docs: record overprint hardware validation` |
+| H2 `trailing` | done | `docs: record overprint hardware validation` |
 | H3 Leading-edge positioning, `full` | pending | |

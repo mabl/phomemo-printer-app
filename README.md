@@ -264,7 +264,7 @@ reach past its edges; the driver prints it 1:1, anchored to the label, and
 drops the bleed it does not print. A CUPS queue created before overprint
 support must be recreated with `register-cups --replace` to offer the
 size. [docs/overprint.md](docs/overprint.md) describes what prints, how to
-design and print, and has a template; hardware validation is pending.
+design and print, has a template, and summarizes the hardware validation.
 
 ## Troubleshooting
 

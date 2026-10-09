@@ -804,7 +804,7 @@ pub enum VerticalPolicy {
     #[default]
     Clip,
     /// The label's rows and the bottom bleed after them, which prints into
-    /// the gap. Not yet validated on hardware.
+    /// the gap. Validated on an M220 on two consecutive labels (H2).
     Trailing,
 }
 
@@ -842,7 +842,7 @@ impl VerticalPolicy {
     pub const fn c_label(self) -> &'static CStr {
         match self {
             Self::Clip => c"Label only (top and bottom bleed not printed)",
-            Self::Trailing => c"Bottom bleed into the gap (experimental)",
+            Self::Trailing => c"Label and bottom bleed (top bleed not printed)",
         }
     }
 
@@ -1842,7 +1842,7 @@ mod tests {
             }
         };
         let clip = c"Label only (top and bottom bleed not printed)";
-        let trailing = c"Bottom bleed into the gap (experimental)";
+        let trailing = c"Label and bottom bleed (top bleed not printed)";
         assert_eq!(label(Some(c"trailing")), trailing);
         assert_eq!(label(Some(c"TRAILING")), trailing);
         assert_eq!(label(Some(c"clip")), clip);

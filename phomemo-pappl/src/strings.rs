@@ -216,7 +216,7 @@ mod tests {
             r#""media.om_40x30mm-overprint-2mm_44x34mm" = "40 x 30 mm + 2 mm overprint";"#,
             r#""phomemo-overprint-vertical" = "Overprint (vertical)";"#,
             r#""phomemo-overprint-vertical.clip" = "Label only (top and bottom bleed not printed)";"#,
-            r#""phomemo-overprint-vertical.trailing" = "Bottom bleed into the gap (experimental)";"#,
+            r#""phomemo-overprint-vertical.trailing" = "Label and bottom bleed (top bleed not printed)";"#,
             r#""phomemo-dither" = "Dithering";"#,
             r#""phomemo-compression" = "Compression";"#,
         ] {
