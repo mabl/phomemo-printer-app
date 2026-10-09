@@ -284,11 +284,12 @@ The print sequence follows the driver's encoder and transport.
 ## Overprint validation (2026-10-09)
 
 Hardware steps H0-H2 of [overprint-plan.md](overprint-plan.md), on the same
-M220 (firmware 3.0.1) with 40 x 30 mm gap labels: 5 labels in total. H1 and
-H2 printed through a dev server built from commit `c4974eb` and a temporary
-driverless CUPS queue, `phomemo-dev`, made with `register-cups`; its PPD
-listed `*PageSize 44x34mm.Borderless`. The PDFs were made with Inkscape
-from SVGs. Positions were read by eye on the printed labels.
+M220 (firmware 3.0.1) with 40 x 30 mm gap labels: 5 labels in total, plus
+2 for the bleed-only design below. H1 and H2 printed through a dev server
+built from commit `c4974eb` and a temporary driverless CUPS queue,
+`phomemo-dev`, made with `register-cups`; its PPD listed
+`*PageSize 44x34mm.Borderless`. All PDFs were made with Inkscape from SVGs.
+Positions were read by eye on the printed labels.
 
 ### H0 - Edge probe (1 label)
 
@@ -310,9 +311,9 @@ Method: one raster sent directly over RFCOMM, outside the driver: 72 bytes
 The label spans about head dots 256-575, within the ±4-dot criterion at
 both edges: **pass**. The label's right edge is at or within a couple of
 dots of the head's last dot, so there is no right-edge clearance and right
-bleed cannot print. The left
-bleed (dots 240-255) falls off the sticker onto the liner, where it leaves
-no mark.
+bleed cannot print. The left bleed (dots 240-255) falls almost entirely
+off the sticker onto the liner, where it leaves no mark; about one dot of
+it reached the sticker in the bleed-only test below.
 
 ### H1 - Horizontal anchor, `clip`, through CUPS (2 labels)
 
@@ -367,6 +368,38 @@ Both jobs logged: matched by media size, policy `trailing`, rows 16-271;
 | Frames | As designed on both labels |
 
 **Pass.** The default was set back to `clip` afterwards.
+
+### Bleed-only design (2 labels)
+
+After deployment, through the installed system service and a recreated
+`phomemo` queue: a 44 x 34 mm design that is black **only** in the 2 mm
+bleed, with the label area white. Rendered with `pdftoppm` at 203 dpi it is
+352 x 272, with ink exactly in canvas columns 0-15 and 336-351 and rows 0-15 and
+256-271. One label with the default `clip` policy, then one with the
+printer default set to `trailing` (and back to `clip`):
+
+```bash
+lp -d phomemo -o media=44x34mm.Borderless -o print-scaling=none border-only.pdf
+```
+
+Both jobs were matched by media size; `clip` sent rows 16-255, `trailing`
+rows 16-271, both canvas columns 0-335 with `LEFT_MARGIN` 30.
+
+| Label | Observation |
+| --- | --- |
+| `clip` | Sticker white except a thin black line, about one dot, along the left edge |
+| `trailing` | The same left line, plus a similar line along the bottom edge; the next label's top clean |
+
+So the bleed reaches about one dot (0.125 mm) onto the sticker on the left
+and, with `trailing`, at the bottom. On the left the sticker starts at
+about head dot 255, one dot before the anchor (dot 256). That fits H0,
+where the dot 255-257 tick showed as a thin sliver. At the bottom the
+sticker ends about one row after the label's last row (row 255), whether
+from the label's length or where the raster starts; this observation
+cannot tell which. Nothing printed on the right: the driver does not send
+columns 336-351. On these two labels the error is in the safe direction
+for overprint: the artwork overlaps the edge rather than leaving a white
+gap.
 
 ### Not yet tested
 

@@ -66,8 +66,9 @@ x (mm)  0    2                                    42   44
   the label ends at or within a couple of dots of the head's last dot),
   and the driver drops these columns.
 - **Left bleed (x = 0-2 mm): always, beside the rows sent.** It prints
-  beside the label's left edge: off the sticker when the label is in
-  place, and onto the label when it sits further left. The backing liner
+  beside the label's left edge: off the sticker, all but about one dot,
+  when the label is in place, and onto the label when it sits further
+  left. The backing liner
   is not thermal paper, so bleed that misses the sticker leaves no mark.
 - **Top bleed (y = 0-2 mm): never, for now.** In gap mode the printer
   starts each print where it detects the label, so these rows would print
@@ -76,7 +77,7 @@ x (mm)  0    2                                    42   44
   ([m220-positioning.md](m220-positioning.md)).
 - **Bottom bleed (y = 32-34 mm): only with the `trailing` policy** (see
   The vertical policy), which prints it into the gap after the label,
-  where it leaves no mark either.
+  where it leaves no mark beyond about one row on the sticker.
 
 By default (`clip`) the printer receives the label area plus the left
 bleed: 42 x 30 mm, as long as an ordinary 40 x 30 mm print. In dots,
@@ -84,6 +85,15 @@ canvas columns 0-335 land on head dots 240-575, the label's left edge
 (column 16) on dot 256 where an ordinary 40 x 30 mm print starts, and rows
 16-255 are sent (up to 271 with `trailing`: 16-270 for a 271-row PAPPL
 image).
+
+On two labels, read by eye, a design that is black only in the bleed
+printed a thin line, about one dot (0.125 mm), along the sticker's left
+edge, and with `trailing` also along its bottom edge
+([m220-positioning.md](m220-positioning.md#bleed-only-design-2-labels)).
+So the bleed slightly overlaps the sticker rather than leaving a white
+strip, which is what it is for. Bleed artwork that contrasts with the
+label's edge shows as that thin line; extend the label's edge colour into
+the bleed instead.
 
 ## Designing
 
