@@ -365,3 +365,6 @@ python3 scripts/generate_media_catalog.py --reference-dir path/to/assets
 
 `--out` writes elsewhere; the catalog records each input's file name and
 SHA-256, not its local path.
+
+Measured M220 paper-positioning behavior and leading-edge bleed experiments
+are recorded in [docs/m220-positioning.md](docs/m220-positioning.md).
