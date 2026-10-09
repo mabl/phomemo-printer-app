@@ -320,6 +320,12 @@ static pappl_system_t *system_cb(int num_options, cups_option_t *options, void *
     if (!system)
         return NULL;
 
+    // The names of the overprint canvases and vendor options, merged into
+    // PAPPL's own "en" strings, which papplSystemCreate has loaded and which
+    // win for any key both have (loc.c), and served as printer-strings-uri.
+    // PAPPL keeps the pointer: the catalog is static Rust data.
+    papplSystemAddStringsData(system, "/en.strings", "en", pm_strings_en());
+
     if (app->server && auth_service && geteuid())
         papplLog(system, PAPPL_LOGLEVEL_WARN,
                  "Not running as root, so logins through PAM service \"%s\" fail for "

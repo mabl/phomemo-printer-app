@@ -12,6 +12,7 @@
 //! - `media`: what PAPPL's media description means for the printer.
 //! - `overprint`: design canvases larger than the label, and where they
 //!   reach the head.
+//! - `strings`: the English strings catalog PAPPL shows names from.
 //! - `autoadd`: which driver a discovered device gets.
 //! - `raster`: the raster driver, from PAPPL's pages to the printer's
 //!   byte stream.
@@ -37,6 +38,7 @@ mod models;
 mod overprint;
 mod pappl;
 mod raster;
+mod strings;
 mod testpage;
 
 // The types and constants of the C interface. Re-exporting them makes them
@@ -44,6 +46,7 @@ mod testpage;
 pub use crate::bt::ffi::PmBtConnection;
 pub use crate::defaults::{PmDriverDefaults, PmMediaDefault};
 pub use crate::models::PmModel;
+pub use crate::overprint::PmOverprintInfo;
 pub use crate::pappl::*;
 pub use crate::raster::ffi::{
     PM_MEDIA_NAME_SIZE, PM_VENDOR_VALUE_SIZE, PmJob, PmJobContext, PmJobSent, PmOps, PmOptions,

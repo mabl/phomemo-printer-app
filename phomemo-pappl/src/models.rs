@@ -14,7 +14,7 @@ use phomemo_protocol::media::{MediaPreset, PaperPool, paper_pool};
 use phomemo_protocol::model::{self, ModelInfo};
 
 use crate::media;
-use crate::overprint::OverprintProfile;
+use crate::overprint::{Canvas, OverprintProfile};
 use crate::pappl::tracking_flag;
 use crate::raster::MAX_ROWS;
 
@@ -33,6 +33,8 @@ pub struct Model {
     media_names: Vec<CString>,
     /// The PWG names of [`Model::custom_range`]'s bounds.
     custom_range_names: [CString; 2],
+    /// The overprint canvases offered ([`Model::overprint_profiles`]).
+    canvases: Vec<Canvas>,
     /// Keeps the string `view.name` points to.
     _name: CString,
     view: PmModel,
@@ -149,11 +151,17 @@ impl Model {
             product,
             media_names,
             custom_range_names: Default::default(),
+            canvases: Vec::new(),
             _name: name,
             view,
         };
-        // The range follows from the model's other properties.
+        // The range and the canvases follow from the model's other
+        // properties.
         model.custom_range_names = model.custom_range()?.pwg_names()?;
+        model.canvases = model
+            .usable_overprint_profiles()
+            .filter_map(Canvas::new)
+            .collect();
         Some(model)
     }
 
@@ -376,8 +384,21 @@ impl Model {
     /// The overprint profiles for this model (`docs/overprint-plan.md`):
     /// those named for it, if its media is not sideways, the profile's
     /// stock is in its catalog at the profile's size, and it takes the
-    /// canvas ([`Self::accepts_media`]).
+    /// canvas ([`Self::accepts_media`]). In the order of
+    /// [`Self::canvases`].
     pub fn overprint_profiles(&self) -> impl Iterator<Item = &'static OverprintProfile> {
+        self.canvases.iter().map(Canvas::profile)
+    }
+
+    /// The canvases of [`Self::overprint_profiles`], with their C strings,
+    /// in the order the media list offers them.
+    pub fn canvases(&self) -> &[Canvas] {
+        &self.canvases
+    }
+
+    /// The profiles [`Self::overprint_profiles`] describes, worked out
+    /// once by [`Self::new`].
+    fn usable_overprint_profiles(&self) -> impl Iterator<Item = &'static OverprintProfile> {
         let model = self.name();
         let usable = !self.has_sideways_media();
         OverprintProfile::all().iter().filter(move |profile| {
@@ -680,11 +701,39 @@ mod tests {
     fn media_fit_in_pappl() {
         for model in Model::all() {
             assert!(
-                model.media().count() + model.custom_range_names().count()
+                model.media().count() + model.canvases().len() + model.custom_range_names().count()
                     <= crate::pappl::PM_MAX_MEDIA,
                 "{}",
                 model.name()
             );
         }
+    }
+
+    /// The canvases lie inside the custom range and are labels, so adding
+    /// them to the media list changes neither the range nor whether a
+    /// custom roll fits (`c/media.c`, `media_custom_range`).
+    #[test]
+    fn canvases_lie_inside_the_custom_range() {
+        for model in Model::all() {
+            let CustomRange { min, max } = model.custom_range().expect("the catalog has labels");
+            for profile in model.overprint_profiles() {
+                let canvas = profile.canvas();
+                assert!(!media::is_roll(canvas.length), "{}", model.name());
+                assert!(
+                    (min.width..=max.width).contains(&canvas.width)
+                        && (min.length..=max.length).contains(&canvas.length),
+                    "{}",
+                    model.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn canvases_follow_the_profiles() {
+        let m220 = model("M220");
+        let names: Vec<_> = m220.canvases().iter().map(Canvas::name).collect();
+        assert_eq!(names, [c"om_40x30mm-overprint-2mm_44x34mm"]);
+        assert!(model("D30").canvases().is_empty());
     }
 }

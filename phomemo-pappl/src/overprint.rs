@@ -20,14 +20,17 @@
 //!   head dot an ordinary job's first column does, and the right bleed is
 //!   clipped (D5).
 //! - [`VerticalPolicy`]: which canvas rows are sent along the feed.
+//! - [`Canvas`] and the `pm_overprint_*` functions: a model's canvases as
+//!   `c/driver.c` advertises them and `c/media.c` shows them.
 
-use std::ffi::c_int;
-use std::fmt;
+use std::ffi::{CStr, CString, c_char, c_int, c_uint};
+use std::fmt::{self, Write as _};
 use std::ops::Range;
+use std::ptr;
 use std::str::FromStr;
 
 use crate::media;
-use crate::models::{MediaSize, Model, millimetres};
+use crate::models::{MediaSize, Model, PmModel, millimetres};
 use crate::pappl::LogLevel;
 
 /// How far two sizes may differ, in hundredths of a millimetre per axis,
@@ -168,6 +171,290 @@ impl OverprintProfile {
     pub fn is_canvas_name(&self, size_name: &str) -> bool {
         size_name.trim().eq_ignore_ascii_case(&self.canvas_name())
     }
+
+    /// Where the label sits on the canvas, for the media page: `design on
+    /// 44 x 34 mm; the label is 2 mm from the left and 2 mm from the top;
+    /// the right 2 mm is not printed`. The right bleed is never printed
+    /// ([`Geometry`] ends the bitmap with the label, D5).
+    #[must_use]
+    pub fn summary(&self) -> String {
+        let mut summary = format!(
+            "design on {}; the label is {} mm from the left and {} mm from the top",
+            describe(self.canvas()),
+            millimetres(self.bleed.left),
+            millimetres(self.bleed.top),
+        );
+        if self.bleed.right > 0 {
+            let _ = write!(
+                summary,
+                "; the right {} mm is not printed",
+                millimetres(self.bleed.right)
+            );
+        }
+        summary
+    }
+}
+
+/// A profile as a model advertises it, with the C strings `c/driver.c` and
+/// `c/media.c` are handed, which the model table owns for the process's
+/// lifetime ([`Model::canvases`]).
+#[derive(Debug)]
+pub struct Canvas {
+    profile: &'static OverprintProfile,
+    name: CString,
+    label: CString,
+    stock_name: CString,
+    summary: CString,
+}
+
+impl Canvas {
+    /// The canvas of `profile`; `None` if a string holds a NUL.
+    #[must_use]
+    pub fn new(profile: &'static OverprintProfile) -> Option<Self> {
+        Some(Self {
+            profile,
+            name: CString::new(profile.canvas_name()).ok()?,
+            label: CString::new(profile.label).ok()?,
+            stock_name: CString::new(profile.stock_name).ok()?,
+            summary: CString::new(profile.summary()).ok()?,
+        })
+    }
+
+    /// The profile.
+    #[must_use]
+    pub const fn profile(&self) -> &'static OverprintProfile {
+        self.profile
+    }
+
+    /// The canvas's PWG name ([`OverprintProfile::canvas_name`]).
+    #[must_use]
+    pub fn name(&self) -> &CStr {
+        &self.name
+    }
+
+    /// The canvas as C sees it.
+    #[must_use]
+    pub fn info(&self) -> PmOverprintInfo {
+        let OverprintProfile { stock, bleed, .. } = self.profile;
+        let canvas = self.profile.canvas();
+        PmOverprintInfo {
+            canvas_name: self.name.as_ptr(),
+            label: self.label.as_ptr(),
+            stock_name: self.stock_name.as_ptr(),
+            summary: self.summary.as_ptr(),
+            canvas_width: canvas.width,
+            canvas_length: canvas.length,
+            stock_width: stock.width,
+            stock_length: stock.length,
+            bleed_left: bleed.left,
+            bleed_top: bleed.top,
+            bleed_right: bleed.right,
+            bleed_bottom: bleed.bottom,
+        }
+    }
+}
+
+/// One of a model's overprint canvases, for `c/media.c`.
+///
+/// Every pointer is to a NUL-terminated string owned by the model table,
+/// which lives as long as the process; sizes are in hundredths of a
+/// millimetre.
+#[repr(C)]
+#[derive(Debug)]
+pub struct PmOverprintInfo {
+    /// The canvas's PWG name, e.g. `om_40x30mm-overprint-2mm_44x34mm`.
+    pub canvas_name: *const c_char,
+    /// Human-readable name, e.g. `40 x 30 mm + 2 mm overprint`.
+    pub label: *const c_char,
+    /// The stock's PWG name, e.g. `om_40x30mm_40x30mm`.
+    pub stock_name: *const c_char,
+    /// Where the label sits on the canvas ([`OverprintProfile::summary`]).
+    pub summary: *const c_char,
+    /// The canvas's width.
+    pub canvas_width: c_int,
+    /// The canvas's length.
+    pub canvas_length: c_int,
+    /// The stock's width.
+    pub stock_width: c_int,
+    /// The stock's length.
+    pub stock_length: c_int,
+    /// Bleed at the start of each row.
+    pub bleed_left: c_int,
+    /// Bleed before the label.
+    pub bleed_top: c_int,
+    /// Bleed at the end of each row, which is not printed.
+    pub bleed_right: c_int,
+    /// Bleed after the label.
+    pub bleed_bottom: c_int,
+}
+
+/// `model`'s canvas at `index`, if `model` is one of the table's views
+/// (only compared against them, never dereferenced).
+fn model_canvas(model: *const PmModel, index: c_uint) -> Option<&'static Canvas> {
+    Model::from_view(model)?
+        .canvases()
+        .get(usize::try_from(index).ok()?)
+}
+
+/// Number of overprint canvases `model` offers; 0 if `model` is not one
+/// of the table's views, which are the only pointers it is compared
+/// against, never dereferenced.
+#[unsafe(no_mangle)]
+pub extern "C" fn pm_overprint_count(model: *const PmModel) -> c_uint {
+    Model::from_view(model).map_or(0, |model| {
+        c_uint::try_from(model.canvases().len()).unwrap_or(c_uint::MAX)
+    })
+}
+
+/// Fill `out` with `model`'s canvas at `index`, in the order of the media
+/// list. Returns false, leaving `out` untouched, if `model` is not one of
+/// the table's views, `index >= pm_overprint_count(model)`, or `out` is
+/// NULL.
+///
+/// # Safety
+///
+/// `out` must be NULL or valid for writing a `PmOverprintInfo`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pm_overprint_get(
+    model: *const PmModel,
+    index: c_uint,
+    out: *mut PmOverprintInfo,
+) -> bool {
+    let Some(canvas) = model_canvas(model, index) else {
+        return false;
+    };
+    if out.is_null() {
+        return false;
+    }
+    // SAFETY: `out` is valid for writes; `write` does not read or drop
+    // whatever was there.
+    unsafe { out.write(canvas.info()) };
+    true
+}
+
+/// The index of `model`'s canvas named `size_name`, ignoring ASCII case
+/// ([`OverprintProfile::is_canvas_name`]), if there is one.
+///
+/// # Safety
+///
+/// `size_name` must be NULL or point to a NUL-terminated string.
+unsafe fn find_canvas(model: *const PmModel, size_name: *const c_char) -> Option<usize> {
+    if size_name.is_null() {
+        return None;
+    }
+    // SAFETY: the caller passes a NUL-terminated string.
+    let size_name = unsafe { CStr::from_ptr(size_name) }.to_string_lossy();
+    Model::from_view(model)?
+        .canvases()
+        .iter()
+        .position(|canvas| canvas.profile().is_canvas_name(&size_name))
+}
+
+/// Whether `size_name` is one of `model`'s canvas names, ignoring ASCII
+/// case: a design size rather than media to load (plan, D1). False for
+/// NULL, or if `model` is not one of the table's views.
+///
+/// # Safety
+///
+/// `size_name` must be NULL or point to a NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pm_overprint_is_canvas(
+    model: *const PmModel,
+    size_name: *const c_char,
+) -> bool {
+    // SAFETY: the caller's obligation is passed on.
+    unsafe { find_canvas(model, size_name) }.is_some()
+}
+
+/// The index of `model`'s canvas named `size_name`, ignoring ASCII case,
+/// for [`pm_overprint_get`]; -1 if [`pm_overprint_is_canvas`] is false.
+///
+/// # Safety
+///
+/// `size_name` must be NULL or point to a NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pm_overprint_find(
+    model: *const PmModel,
+    size_name: *const c_char,
+) -> c_int {
+    // SAFETY: the caller's obligation is passed on.
+    unsafe { find_canvas(model, size_name) }
+        .and_then(|index| c_int::try_from(index).ok())
+        .unwrap_or(-1)
+}
+
+/// Whether the stock of `model`'s canvas at `index` is loaded, as a job's
+/// resolution decides it (D3): the ready media `ready_name`,
+/// `ready_width` x `ready_length` hundredths of a millimetre, is a label
+/// of the stock's size, or is the canvas itself. False if there is no such
+/// canvas.
+///
+/// # Safety
+///
+/// `ready_name` must be NULL or point to a NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pm_overprint_stock_loaded(
+    model: *const PmModel,
+    index: c_uint,
+    ready_name: *const c_char,
+    ready_width: c_int,
+    ready_length: c_int,
+) -> bool {
+    let Some(canvas) = model_canvas(model, index) else {
+        return false;
+    };
+    let ready_name = if ready_name.is_null() {
+        c""
+    } else {
+        // SAFETY: the caller passes a NUL-terminated string.
+        unsafe { CStr::from_ptr(ready_name) }
+    };
+    let ready = NamedMedia {
+        name: &ready_name.to_string_lossy(),
+        size: MediaSize {
+            width: ready_width,
+            length: ready_length,
+        },
+    };
+    stock_loaded(canvas.profile(), &canvas.profile().canvas_name(), &ready).is_some()
+}
+
+/// The `phomemo-overprint-vertical` keyword at `index` of
+/// `-supported`, or NULL past the last. The strings are static.
+#[unsafe(no_mangle)]
+pub extern "C" fn pm_overprint_vertical_keyword(index: c_uint) -> *const c_char {
+    usize::try_from(index)
+        .ok()
+        .and_then(|index| VerticalPolicy::ALL.get(index))
+        .map_or(ptr::null(), |policy| policy.keyword().as_ptr())
+}
+
+/// The label of the policy a job without a `phomemo-overprint-vertical` of
+/// its own gets when the printer's default is `value`
+/// ([`VerticalPolicy::resolve_default`]: case-insensitive; NULL, empty or
+/// unknown is the default policy). The string is static.
+///
+/// # Safety
+///
+/// `value` must be NULL or point to a NUL-terminated string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pm_overprint_vertical_label(value: *const c_char) -> *const c_char {
+    let value = if value.is_null() {
+        None
+    } else {
+        // SAFETY: the caller passes a NUL-terminated string.
+        Some(unsafe { CStr::from_ptr(value) }.to_string_lossy())
+    };
+    VerticalPolicy::resolve_default(value.as_deref())
+        .c_label()
+        .as_ptr()
+}
+
+/// The `phomemo-overprint-vertical-default` keyword, `clip`. The string is
+/// static.
+#[unsafe(no_mangle)]
+pub extern "C" fn pm_overprint_vertical_default() -> *const c_char {
+    VerticalPolicy::default().keyword().as_ptr()
 }
 
 /// A named media size: a job's media, or the loaded ("ready") media.
@@ -522,6 +809,9 @@ pub enum VerticalPolicy {
 }
 
 impl VerticalPolicy {
+    /// Every policy offered, in the order `-supported` lists them.
+    pub const ALL: [Self; 2] = [Self::Clip, Self::Trailing];
+
     /// The option keyword.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -530,13 +820,52 @@ impl VerticalPolicy {
             Self::Trailing => "trailing",
         }
     }
+
+    /// The option keyword as a C string, for `c/driver.c`'s `-supported`
+    /// and `-default`; the same as [`Self::name`].
+    #[must_use]
+    pub const fn keyword(self) -> &'static CStr {
+        match self {
+            Self::Clip => c"clip",
+            Self::Trailing => c"trailing",
+        }
+    }
+
+    /// Human-readable name, for the strings catalog and the media page.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        self.c_label().to_str().unwrap_or_default()
+    }
+
+    /// [`Self::label`] as a C string.
+    #[must_use]
+    pub const fn c_label(self) -> &'static CStr {
+        match self {
+            Self::Clip => c"Label only (top and bottom bleed not printed)",
+            Self::Trailing => c"Bottom bleed into the gap (experimental)",
+        }
+    }
+
+    /// The policy a job with no value of its own gets for the printer
+    /// default `value`, as [`PrintOptions::overprint_vertical`] decides it:
+    /// parsed ignoring ASCII case, the default for none, an empty value or
+    /// an unknown one.
+    ///
+    /// [`PrintOptions::overprint_vertical`]: crate::raster::PrintOptions::overprint_vertical
+    #[must_use]
+    pub fn resolve_default(value: Option<&str>) -> Self {
+        value
+            .filter(|value| !value.is_empty())
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_default()
+    }
 }
 
 impl FromStr for VerticalPolicy {
     type Err = UnknownPolicy;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        [Self::Clip, Self::Trailing]
+        Self::ALL
             .into_iter()
             .find(|policy| policy.name().eq_ignore_ascii_case(s))
             .ok_or(UnknownPolicy)
@@ -1475,6 +1804,220 @@ mod tests {
             profile_rule(&m220_resolve(&ready, Some([124.0, 96.0]), &ready)),
             Some((Rule::PageSize, vec![LogLevel::Info]))
         );
+    }
+
+    #[test]
+    fn policy_keywords_match_their_names() {
+        for policy in VerticalPolicy::ALL {
+            assert_eq!(policy.keyword().to_str(), Ok(policy.name()));
+            assert_eq!(policy.name().parse(), Ok(policy));
+        }
+        let keywords: Vec<_> = (0..=c_uint::try_from(VerticalPolicy::ALL.len()).expect("small"))
+            .map(|index| pm_overprint_vertical_keyword(index))
+            .take_while(|keyword| !keyword.is_null())
+            // SAFETY: non-NULL results are static C strings.
+            .map(|keyword| unsafe { CStr::from_ptr(keyword) })
+            .collect();
+        assert_eq!(keywords, [c"clip", c"trailing"]);
+        assert!(pm_overprint_vertical_keyword(c_uint::MAX).is_null());
+        // SAFETY: pm_overprint_vertical_default returns a static C string.
+        let default = unsafe { CStr::from_ptr(pm_overprint_vertical_default()) };
+        assert_eq!(default, c"clip");
+    }
+
+    #[test]
+    fn policy_labels_resolve_as_jobs_do() {
+        /// A log that drops its messages.
+        struct Quiet;
+        impl crate::raster::Log for Quiet {
+            fn log(&self, _: LogLevel, _: &str) {}
+        }
+
+        let label = |value: Option<&CStr>| {
+            // SAFETY: a static C string or NULL; the result is static.
+            unsafe {
+                CStr::from_ptr(pm_overprint_vertical_label(
+                    value.map_or(ptr::null(), CStr::as_ptr),
+                ))
+            }
+        };
+        let clip = c"Label only (top and bottom bleed not printed)";
+        let trailing = c"Bottom bleed into the gap (experimental)";
+        assert_eq!(label(Some(c"trailing")), trailing);
+        assert_eq!(label(Some(c"TRAILING")), trailing);
+        assert_eq!(label(Some(c"clip")), clip);
+        for value in [None, Some(c""), Some(c"full"), Some(c"bogus")] {
+            assert_eq!(label(value), clip, "{value:?}");
+        }
+        for policy in VerticalPolicy::ALL {
+            assert_eq!(policy.c_label().to_str(), Ok(policy.label()));
+        }
+        // The same decision as a job's without a value of its own
+        // (raster/options.rs).
+        for value in [None, Some(""), Some("full"), Some("Trailing"), Some("clip")] {
+            assert_eq!(
+                VerticalPolicy::resolve_default(value),
+                crate::raster::PrintOptions::default().overprint_vertical(value, &Quiet),
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_m220_summary() {
+        assert_eq!(
+            m220_profile().summary(),
+            "design on 44 x 34 mm; the label is 2 mm from the left and 2 mm from the top; the right 2 mm is not printed"
+        );
+        let no_right = OverprintProfile {
+            bleed: Bleed {
+                right: 0,
+                ..m220_profile().bleed
+            },
+            ..*m220_profile()
+        };
+        assert_eq!(
+            no_right.summary(),
+            "design on 42 x 34 mm; the label is 2 mm from the left and 2 mm from the top"
+        );
+    }
+
+    /// The string at `ptr`, which the model table owns.
+    fn string(ptr: *const c_char) -> &'static str {
+        // SAFETY: the info only points at strings the table owns.
+        unsafe { CStr::from_ptr(ptr) }.to_str().expect("UTF-8")
+    }
+
+    #[test]
+    fn ffi_lists_the_canvases() {
+        let m220 = model("M220").view();
+        assert_eq!(pm_overprint_count(m220), 1);
+        assert_eq!(pm_overprint_count(model("D30").view()), 0);
+        assert_eq!(pm_overprint_count(ptr::null()), 0);
+
+        let mut info = std::mem::MaybeUninit::<PmOverprintInfo>::uninit();
+        // SAFETY: `info` is valid for writes; bad models, indices and a
+        // NULL output are refused.
+        unsafe {
+            assert!(!pm_overprint_get(ptr::null(), 0, info.as_mut_ptr()));
+            assert!(!pm_overprint_get(m220, 1, info.as_mut_ptr()));
+            assert!(!pm_overprint_get(m220, 0, ptr::null_mut()));
+            assert!(pm_overprint_get(m220, 0, info.as_mut_ptr()));
+        }
+        // SAFETY: pm_overprint_get returned true, so it wrote `info`.
+        let info = unsafe { info.assume_init() };
+        assert_eq!(string(info.canvas_name), CANVAS);
+        assert_eq!(string(info.label), "40 x 30 mm + 2 mm overprint");
+        assert_eq!(string(info.stock_name), STOCK);
+        assert_eq!(string(info.summary), m220_profile().summary());
+        assert_eq!((info.canvas_width, info.canvas_length), (4400, 3400));
+        assert_eq!((info.stock_width, info.stock_length), (4000, 3000));
+        assert_eq!(
+            [
+                info.bleed_left,
+                info.bleed_top,
+                info.bleed_right,
+                info.bleed_bottom
+            ],
+            [200; 4]
+        );
+    }
+
+    #[test]
+    fn ffi_recognizes_canvases() {
+        let m220 = model("M220").view();
+        // SAFETY: static C strings and NULL.
+        unsafe {
+            assert!(pm_overprint_is_canvas(
+                m220,
+                c"om_40x30mm-overprint-2mm_44x34mm".as_ptr()
+            ));
+            assert!(pm_overprint_is_canvas(
+                m220,
+                c"OM_40X30MM-OVERPRINT-2MM_44X34MM".as_ptr()
+            ));
+            assert!(!pm_overprint_is_canvas(
+                m220,
+                c"om_40x30mm_40x30mm".as_ptr()
+            ));
+            assert!(!pm_overprint_is_canvas(
+                m220,
+                c"custom_44x34mm_44x34mm".as_ptr()
+            ));
+            assert!(!pm_overprint_is_canvas(m220, ptr::null()));
+            assert!(!pm_overprint_is_canvas(
+                model("M110").view(),
+                c"om_40x30mm-overprint-2mm_44x34mm".as_ptr()
+            ));
+            assert!(!pm_overprint_is_canvas(
+                ptr::null(),
+                c"om_40x30mm-overprint-2mm_44x34mm".as_ptr()
+            ));
+            assert_eq!(
+                pm_overprint_find(m220, c"OM_40x30mm-overprint-2mm_44x34mm".as_ptr()),
+                0
+            );
+            assert_eq!(pm_overprint_find(m220, c"om_40x30mm_40x30mm".as_ptr()), -1);
+            assert_eq!(pm_overprint_find(m220, ptr::null()), -1);
+        }
+    }
+
+    #[test]
+    fn ffi_stock_loaded() {
+        let m220 = model("M220").view();
+        // SAFETY: static C strings and NULL.
+        unsafe {
+            assert!(pm_overprint_stock_loaded(
+                m220,
+                0,
+                c"om_40x30mm_40x30mm".as_ptr(),
+                4000,
+                3000
+            ));
+            assert!(pm_overprint_stock_loaded(
+                m220,
+                0,
+                c"custom_40x30mm_40x30mm".as_ptr(),
+                4050,
+                2950
+            ));
+            assert!(pm_overprint_stock_loaded(
+                m220,
+                0,
+                c"om_40x30mm-overprint-2mm_44x34mm".as_ptr(),
+                4400,
+                3400
+            ));
+            assert!(!pm_overprint_stock_loaded(
+                m220,
+                0,
+                c"om_50x30mm_50x30mm".as_ptr(),
+                5000,
+                3000
+            ));
+            assert!(!pm_overprint_stock_loaded(
+                m220,
+                0,
+                c"om_40x0mm_40x0mm".as_ptr(),
+                4000,
+                0
+            ));
+            assert!(pm_overprint_stock_loaded(m220, 0, ptr::null(), 4000, 3000));
+            assert!(!pm_overprint_stock_loaded(
+                m220,
+                1,
+                c"om_40x30mm_40x30mm".as_ptr(),
+                4000,
+                3000
+            ));
+            assert!(!pm_overprint_stock_loaded(
+                ptr::null(),
+                0,
+                c"om_40x30mm_40x30mm".as_ptr(),
+                4000,
+                3000
+            ));
+        }
     }
 
     #[test]

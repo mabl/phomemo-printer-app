@@ -9,6 +9,7 @@ use std::ptr;
 
 use crate::media;
 use crate::models::{Model, PmModel};
+use crate::overprint::Canvas;
 use crate::pappl::{PM_MAX_MEDIA, tracking_flag};
 use crate::raster::{DARKNESS_LEVELS, INCH_PER_SECOND, SPEED_MAX};
 
@@ -44,8 +45,9 @@ pub struct PmDriverDefaults {
     pub tracking_supported: c_ushort,
     /// Entries used in `media`.
     pub num_media: c_int,
-    /// `media`: PWG names of the media sizes offered, then the bounds of
-    /// the custom sizes ([`Model::custom_range_names`]).
+    /// `media`: PWG names of the catalog's media sizes, then of the
+    /// overprint canvases ([`Model::canvases`]), then the bounds of the
+    /// custom sizes ([`Model::custom_range_names`]).
     pub media: [*const c_char; PM_MAX_MEDIA],
     /// `media_default`.
     pub media_default: PmMediaDefault,
@@ -73,9 +75,12 @@ impl PmDriverDefaults {
     pub fn new(model: &Model) -> Self {
         let mut media = [ptr::null(); PM_MAX_MEDIA];
         let mut num_media = 0;
+        // PAPPL finds the range's bounds by prefix wherever they are; the
+        // canvases lie inside the range, so they leave it as it is.
         let names = model
             .media()
             .map(|(_, name)| name)
+            .chain(model.canvases().iter().map(Canvas::name))
             .chain(model.custom_range_names());
         for (slot, name) in media.iter_mut().zip(names) {
             *slot = name.as_ptr();
@@ -138,6 +143,7 @@ mod tests {
     use std::mem::MaybeUninit;
 
     use super::*;
+    use crate::overprint::OverprintProfile;
     use crate::pappl::{
         PM_MEDIA_TRACKING_CONTINUOUS, PM_MEDIA_TRACKING_GAP, PM_MEDIA_TRACKING_MARK,
     };
@@ -181,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn media_list_is_the_catalogs_and_the_custom_range() {
+    fn media_list_is_the_catalogs_the_canvases_and_the_custom_range() {
         for model in Model::all() {
             let defaults = PmDriverDefaults::new(model);
             let count = usize::try_from(defaults.num_media).expect("non-negative");
@@ -189,9 +195,14 @@ mod tests {
                 .iter()
                 .map(|&name| string(name))
                 .collect();
+            let canvases: Vec<_> = model
+                .overprint_profiles()
+                .map(OverprintProfile::canvas_name)
+                .collect();
             let expected: Vec<_> = model
                 .media()
                 .map(|(preset, _)| preset.size_name.as_str())
+                .chain(canvases.iter().map(String::as_str))
                 .chain(
                     model
                         .custom_range_names()
@@ -204,6 +215,30 @@ mod tests {
             assert!(defaults.media[count..].iter().all(|name| name.is_null()));
             assert!(names.contains(&string(defaults.media_default.size_name)));
         }
+    }
+
+    #[test]
+    fn m220_media_list_offers_its_canvas() {
+        let names = defaults_names("M220");
+        let canvas = names
+            .iter()
+            .position(|&name| name == "om_40x30mm-overprint-2mm_44x34mm")
+            .expect("the canvas is offered");
+        // After every catalog size, before the range's bounds.
+        assert_eq!(canvas, names.len() - 3);
+        assert!(names[..canvas].contains(&"om_40x30mm_40x30mm"));
+        // Other models offer no canvas.
+        let d30 = defaults_names("D30");
+        assert!(!d30.iter().any(|name| name.contains("overprint")));
+    }
+
+    fn defaults_names(name: &str) -> Vec<&'static str> {
+        let defaults = defaults(name);
+        let count = usize::try_from(defaults.num_media).expect("non-negative");
+        defaults.media[..count]
+            .iter()
+            .map(|&name| string(name))
+            .collect()
     }
 
     #[test]

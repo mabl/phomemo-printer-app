@@ -213,7 +213,8 @@ c/media.c           Media Setup: canvases not offered/refused; ready canvas
 c/main.c            system_cb: register the strings catalog.
 phomemo-pappl/src/
   overprint.rs      NEW: profile table, resolution (D3), geometry (2.1/2.2),
-                    strings catalog, small FFI helpers for c/media.c.
+                    small FFI helpers for c/driver.c and c/media.c.
+  strings.rs        NEW: the static English strings catalog (D8).
   models.rs         Model::overprint_profiles().
   defaults.rs       media list = catalog + canvases + custom range bounds.
   raster/ffi.rs     PmOptions / PmJobContext fields, Ops::read_options.
@@ -321,8 +322,8 @@ Commit: `pappl: honour printer defaults for vendor options`.
 
 ### WP4 - Advertising, Media Setup and names
 
-Files: `phomemo-pappl/src/{defaults.rs,overprint.rs}`, `c/driver.c`,
-`c/media.c`, `c/main.c`.
+Files: `phomemo-pappl/src/{defaults.rs,overprint.rs,models.rs,strings.rs,lib.rs}`,
+`c/driver.c`, `c/media.c`, `c/main.c`, `c/phomemo.h`.
 
 - Media list: catalog sizes, then canvases, then the custom range bounds
   (PAPPL finds bounds by prefix anywhere; the order matters only to this
@@ -340,6 +341,57 @@ Tests: Rust tests for media list contents/order and the strings catalog;
 `media-col-database`, the Media Setup and Printing Defaults pages render.
 
 Commit: `pappl: advertise overprint canvases`.
+
+Notes (as implemented):
+
+- `Model` builds its `overprint::Canvas` list once (profile plus owned C
+  strings: canvas name, label, stock name, placement summary);
+  `Model::overprint_profiles()` iterates it. The media list is catalog,
+  canvases, range bounds; tests check the order and `PM_MAX_MEDIA`, and that
+  every canvas is a label inside the custom range (so `media_custom_range`'s
+  bounds and `continuous` are unchanged).
+- `phomemo-overprint-vertical` is a vendor option **only on models with a
+  canvas** (the M220); the others keep two vendor options. Keywords and the
+  default come from `VerticalPolicy` via `pm_overprint_vertical_keyword(i)`
+  and `pm_overprint_vertical_default()`. PAPPL returns vendor
+  `-supported`/`-default` only when requested by name, not for `all`, as for
+  the existing options.
+- FFI for `c/media.c`: `pm_overprint_count`, `pm_overprint_get`
+  (`PmOverprintInfo`: names, label, summary, canvas/stock sizes, bleeds;
+  pointers into the model table), `pm_overprint_is_canvas`,
+  `pm_overprint_find` (index or -1), `pm_overprint_stock_loaded` (D3's
+  "stock loaded" rule, so a ready canvas or a custom 40 x 30 mm label counts).
+- Media Setup: canvases are not in the select; a POST naming one (any case)
+  is refused with "<label> is a design size, not loaded media; load the
+  40 x 30 mm label."; a ready canvas shows as "<label> (load the 40 x 30 mm
+  label instead)" and its **stock is preselected**, so saving the form
+  unchanged loads the stock; a custom size equal to the canvas then loads
+  as a custom size, and the custom fields are prefilled with the stock's
+  size. The "Overprint designs:" row lists each canvas
+  whose stock is loaded (label and `OverprintProfile::summary`, e.g. "design
+  on 44 x 34 mm; the label is 2 mm from the left and 2 mm from the top; the
+  right 2 mm is not printed") and the policy a job gets by default, from
+  `pm_overprint_vertical_label(printer default)`, which resolves it as jobs
+  do (case-insensitive; empty or unknown is `clip`, which a job also logs
+  as a warning), with a link to Printing Defaults.
+- Strings catalog: new module `strings.rs` (not `overprint.rs`), keys per
+  D8 plus `phomemo-dither` = "Dithering" and `phomemo-compression` =
+  "Compression"; `pm_strings_en()` (static `LazyLock`) and `pm_string_en(key)`
+  for the media page's English texts. Registered in `system_cb` right after
+  `papplSystemCreate` (which loads PAPPL's own strings) at `/en.strings`,
+  the path PAPPL's own test suite uses; `printer-strings-uri` is built from
+  it. The text has **no comments**: PAPPL 1.4's `loc_load_resource` goes on
+  to read a key straight after a comment and gives up ("Missing separator"),
+  and it skips the character after each `;`, so each pair ends its line; the
+  Rust test parser mimics both.
+- Dev-server check done (no Bluetooth: a state file with `file:` device URIs
+  for an M220 and a D30): `media-supported` and `media-col-database` hold
+  the canvas (4400 x 3400), vendor attributes as above (none on the D30),
+  `printer-strings-uri` = `http://localhost:8631/en.strings` serves the
+  catalog, PAPPL's Printing Defaults shows "Overprint (vertical)" with both
+  labels and its Media page "40 x 30 mm + 2 mm overprint"; Media Setup
+  behaves as described, including with a canvas loaded through
+  Set-Printer-Attributes.
 
 ### WP5 - Documentation and design template
 
@@ -420,6 +472,9 @@ step; the docs describe it.
   changes (e.g. a measured anchor per profile).
 - Gap-mode registration repeatability has never been measured; manual
   readings are ±0.1 mm.
+- Canvas PWG names are a persistence contract: PAPPL reloads
+  media-col-ready/default without validation, so a canvas name must not be
+  renamed or removed; if one is retired, map it to its stock at startup.
 
 ## 7. Adversarial review checklist (every commit)
 
@@ -442,7 +497,7 @@ step; the docs describe it.
 | WP2 Profile model and geometry | done | `pappl: add overprint profiles and their geometry` |
 | WP3 Raster path | done | `pappl: print overprint canvases anchored to the physical label` |
 | WP3b Printer defaults for vendor options | pending | |
-| WP4 Advertising, Media Setup, names | pending | |
+| WP4 Advertising, Media Setup, names | done | `pappl: advertise overprint canvases` |
 | WP5 Documentation and template | pending | |
 | H0 Edge probe | pending | |
 | H1 Horizontal anchor and `clip` | pending | |

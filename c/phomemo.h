@@ -18,6 +18,11 @@
 // driver.c — the printer driver
 // ---------------------------------------------------------------------------
 
+// Vendor attributes: the job options the Rust driver reads.
+#define VENDOR_DITHER              "phomemo-dither"
+#define VENDOR_COMPRESSION         "phomemo-compression"
+#define VENDOR_OVERPRINT_VERTICAL  "phomemo-overprint-vertical"
+
 // PAPPL's auto-add callback (pappl_pr_autoadd_cb_t): the name of the driver
 // for a device, or NULL if none fits.
 const char *phomemo_autoadd_cb(const char *device_info, const char *device_uri,
@@ -29,6 +34,11 @@ bool phomemo_driver_cb(pappl_system_t *system, const char *driver_name,
                        const char *device_uri, const char *device_id,
                        pappl_pr_driver_data_t *driver_data, ipp_t **driver_attrs,
                        void *data);
+
+// Copy the printer's `<vendor option>-default` attribute, `default_name`,
+// into `value`, `size` bytes; empty if it has none.
+void phomemo_vendor_default(pappl_printer_t *printer, const char *default_name,
+                            char *value, size_t size);
 
 // ---------------------------------------------------------------------------
 // media.c — the media setup web page

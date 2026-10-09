@@ -6,6 +6,11 @@
 // printer tracks it. The page sets PAPPL's ready media, which PAPPL saves in
 // its state file (media-col-ready), so the choice survives a restart.
 //
+// Overprint canvases (docs/overprint-plan.md, D1) are design sizes, listed
+// in the driver's media list for clients but not media to load: the page
+// does not offer them, refuses them, shows a loaded one as its stock, and
+// lists the designs the loaded stock takes.
+//
 
 #include <stdio.h>
 #include <string.h>
@@ -174,6 +179,13 @@ static void media_format_label(const char *size_name, char *buffer, size_t bufsi
         snprintf(buffer, bufsize, "%s x %s mm label", width, length);
 }
 
+// Find the overprint canvas `size_name` names; false if it is not one.
+static bool media_find_canvas(const pappl_pr_driver_data_t *data, const char *size_name,
+                              PmOverprintInfo *canvas) {
+    int index = pm_overprint_find(data->extension, size_name);
+    return index >= 0 && pm_overprint_get(data->extension, (unsigned)index, canvas);
+}
+
 // ---------------------------------------------------------------------------
 // Form handling
 // ---------------------------------------------------------------------------
@@ -266,7 +278,9 @@ static const char *media_load_custom_size(const pappl_pr_driver_data_t *data,
         return invalid;
 
     // The size loaded, perhaps in the other unit: keep its name and tracking.
-    if (width == ready->size_width && length == ready->size_length)
+    // Not for a loaded canvas, which is no media to keep (D1).
+    if (width == ready->size_width && length == ready->size_length &&
+        !pm_overprint_is_canvas(data->extension, ready->size_name))
         return NULL;
 
     if (!pm_media_fits(data->extension, width, length))
@@ -281,13 +295,24 @@ static const char *media_load_custom_size(const pappl_pr_driver_data_t *data,
 }
 
 // Load the size the form selects into `ready`; NULL, or what is wrong with
-// the selection.
+// the selection, perhaps formatted into `buffer`. An overprint canvas is a
+// design size, not media to load (D1).
 static const char *media_select_size(const pappl_pr_driver_data_t *data,
                                      const char *size_name,
                                      int num_form, cups_option_t *form,
-                                     pappl_media_col_t *ready) {
+                                     pappl_media_col_t *ready,
+                                     char *buffer, size_t bufsize) {
+    PmOverprintInfo canvas;
+
     if (!strcmp(size_name, MEDIA_SIZE_CUSTOM))
         return media_load_custom_size(data, num_form, form, ready);
+    if (media_find_canvas(data, size_name, &canvas)) {
+        char stock[128];
+        media_format_label(canvas.stock_name, stock, sizeof(stock));
+        snprintf(buffer, bufsize, "%s is a design size, not loaded media; load the %s.",
+                 canvas.label, stock);
+        return buffer;
+    }
     if (!media_is_listed(data, size_name))
         return "Unknown media size.";
     return media_load_size(data, size_name, ready);
@@ -316,8 +341,10 @@ static const char *media_select_tracking(const pappl_pr_driver_data_t *data,
     return "Unknown tracking mode.";
 }
 
-// Set the ready media to what the form selects; returns the status to show.
-static const char *media_update(pappl_printer_t *printer, int num_form, cups_option_t *form) {
+// Set the ready media to what the form selects; returns the status to show,
+// perhaps formatted into `buffer`.
+static const char *media_update(pappl_printer_t *printer, int num_form, cups_option_t *form,
+                                char *buffer, size_t bufsize) {
     pappl_pr_driver_data_t data;
     papplPrinterGetDriverData(printer, &data);
 
@@ -327,7 +354,7 @@ static const char *media_update(pappl_printer_t *printer, int num_form, cups_opt
     const char *error = NULL;
 
     if (size_name)
-        error = media_select_size(&data, size_name, num_form, form, &ready);
+        error = media_select_size(&data, size_name, num_form, form, &ready, buffer, bufsize);
     if (!error && tracking)
         error = media_select_tracking(&data, tracking, &ready);
     if (error)
@@ -340,8 +367,10 @@ static const char *media_update(pappl_printer_t *printer, int num_form, cups_opt
     return "Changes saved.";
 }
 
-// Handle a form submission; returns the status to show.
-static const char *media_post(pappl_client_t *client, pappl_printer_t *printer) {
+// Handle a form submission; returns the status to show, perhaps formatted
+// into `buffer`.
+static const char *media_post(pappl_client_t *client, pappl_printer_t *printer,
+                              char *buffer, size_t bufsize) {
     cups_option_t *form = NULL;
     int num_form = papplClientGetForm(client, &form);
     const char *status;
@@ -351,7 +380,7 @@ static const char *media_post(pappl_client_t *client, pappl_printer_t *printer) 
     else if (!papplClientIsValidForm(client, num_form, form))
         status = "Invalid form submission.";
     else
-        status = media_update(printer, num_form, form);
+        status = media_update(printer, num_form, form, buffer, bufsize);
 
     cupsFreeOptions(num_form, form);
     return status;
@@ -361,24 +390,23 @@ static const char *media_post(pappl_client_t *client, pappl_printer_t *printer) 
 // Page
 // ---------------------------------------------------------------------------
 
-// The custom size fields, preset to the size loaded in the unit its name
-// uses. The inputs' bounds take a size in either unit, as on PAPPL's own
+// The custom size fields, preset to `preset`, the size loaded (or for a
+// loaded canvas, its stock), in the unit its name uses. The inputs' bounds take a size in either unit, as on PAPPL's own
 // media page: each is rounded outwards, from the bound in inches for the
 // minimum and in millimetres for the maximum. media_load_custom_size checks
 // the size itself.
-static void media_show_custom_size(pappl_client_t *client,
-                                   const pappl_pr_driver_data_t *data,
+static void media_show_custom_size(pappl_client_t *client, const char *preset_name,
+                                   int preset_width, int preset_length,
                                    const media_range_t *range, bool shown) {
-    const pappl_media_col_t *ready = &data->media_ready[0];
-    const media_unit_t *unit = media_name_unit(ready->size_name);
+    const media_unit_t *unit = media_name_unit(preset_name);
     const media_unit_t *mm = &media_units[0], *in = &media_units[1];
     int min_length = range->continuous ? 0 : range->min_length;
     char width[32], length[32];
     char input_min_width[32], input_max_width[32], input_min_length[32], input_max_length[32];
     char min_width[32], max_width[32], shortest[32], max_length[32];
 
-    media_format_in_unit(ready->size_width, unit, MEDIA_ROUND_NEAREST, width, sizeof(width));
-    media_format_in_unit(ready->size_length, unit, MEDIA_ROUND_NEAREST, length, sizeof(length));
+    media_format_in_unit(preset_width, unit, MEDIA_ROUND_NEAREST, width, sizeof(width));
+    media_format_in_unit(preset_length, unit, MEDIA_ROUND_NEAREST, length, sizeof(length));
     media_format_in_unit(range->min_width, in, MEDIA_ROUND_DOWN,
                          input_min_width, sizeof(input_min_width));
     media_format_in_unit(range->max_width, mm, MEDIA_ROUND_UP,
@@ -435,6 +463,45 @@ static void media_show_tracking(pappl_client_t *client, const pappl_pr_driver_da
     papplClientHTMLPuts(client, "              </select></td></tr>\n");
 }
 
+// The overprint designs the loaded stock takes, with where the label sits
+// on each and the printer's vertical policy; nothing if there are none.
+static void media_show_overprint(pappl_client_t *client, pappl_printer_t *printer,
+                                 const pappl_pr_driver_data_t *data) {
+    const pappl_media_col_t *ready = &data->media_ready[0];
+    unsigned count = pm_overprint_count(data->extension);
+    bool shown = false;
+
+    for (unsigned i = 0; i < count; i++) {
+        PmOverprintInfo canvas;
+        if (!pm_overprint_get(data->extension, i, &canvas) ||
+            !pm_overprint_stock_loaded(data->extension, i, ready->size_name,
+                                       ready->size_width, ready->size_length))
+            continue;
+
+        if (!shown)
+            papplClientHTMLPuts(client, "              <tr><th>Overprint designs:</th><td>");
+        else
+            papplClientHTMLPuts(client, "<br>");
+        papplClientHTMLPrintf(client, "%s: %s.", canvas.label, canvas.summary);
+        shown = true;
+    }
+    if (!shown)
+        return;
+
+    // The policy a job without its own value uses, decided as for a job.
+    char value[64], path[1024];
+    phomemo_vendor_default(printer, VENDOR_OVERPRINT_VERTICAL "-default", value, sizeof(value));
+    const char *policy = pm_overprint_vertical_label(value);
+    const char *option = pm_string_en(VENDOR_OVERPRINT_VERTICAL);
+    papplPrinterGetPath(printer, "printing", path, sizeof(path));
+
+    papplClientHTMLPrintf(client,
+        "<div class=\"form-help\">Lay the design out on the design size at 100%%. "
+        "%s: %s; change it under <a href=\"%s\">Printing Defaults</a>.</div>"
+        "</td></tr>\n",
+        option ? option : VENDOR_OVERPRINT_VERTICAL, policy, path);
+}
+
 static void media_show(pappl_client_t *client, pappl_printer_t *printer, const char *status) {
     pappl_pr_driver_data_t data;
     papplPrinterGetDriverData(printer, &data);
@@ -442,7 +509,11 @@ static void media_show(pappl_client_t *client, pappl_printer_t *printer, const c
     const pappl_media_col_t *ready = &data.media_ready[0];
     media_range_t range;
     bool takes_custom = media_custom_range(&data, &range);
-    bool custom = !media_is_listed(&data, ready->size_name);
+    // A loaded canvas is shown, and selected, as its stock (D1).
+    PmOverprintInfo canvas;
+    bool ready_canvas = media_find_canvas(&data, ready->size_name, &canvas);
+    const char *selected = ready_canvas ? canvas.stock_name : ready->size_name;
+    bool custom = !media_is_listed(&data, selected);
     char label[128];
 
     papplClientHTMLPrinterHeader(client, printer, "Media Setup", 0, NULL, NULL);
@@ -464,13 +535,14 @@ static void media_show(pappl_client_t *client, pappl_printer_t *printer, const c
         papplClientHTMLPuts(client, ">\n");
 
     for (int i = 0; i < data.num_media; i++) {
-        if (media_is_range_bound(data.media[i]))
+        if (media_is_range_bound(data.media[i]) ||
+            pm_overprint_is_canvas(data.extension, data.media[i]))
             continue;
 
         media_format_label(data.media[i], label, sizeof(label));
         papplClientHTMLPrintf(client,
             "                <option value=\"%s\"%s>%s</option>\n",
-            data.media[i], strcmp(data.media[i], ready->size_name) ? "" : " selected", label);
+            data.media[i], strcmp(data.media[i], selected) ? "" : " selected", label);
     }
 
     papplClientHTMLPuts(client,
@@ -479,18 +551,29 @@ static void media_show(pappl_client_t *client, pappl_printer_t *printer, const c
         "(length is driven by the print job).</div></td></tr>\n");
 
     if (takes_custom)
-        media_show_custom_size(client, &data, &range, custom);
+        media_show_custom_size(client, selected,
+                               ready_canvas ? canvas.stock_width : ready->size_width,
+                               ready_canvas ? canvas.stock_length : ready->size_length,
+                               &range, custom);
     media_show_tracking(client, &data);
 
-    media_format_label(ready->size_name, label, sizeof(label));
-    papplClientHTMLPrintf(client,
-        "              <tr><th>Current:</th><td>%s</td></tr>\n"
+    if (ready_canvas) {
+        media_format_label(canvas.stock_name, label, sizeof(label));
+        papplClientHTMLPrintf(client,
+            "              <tr><th>Current:</th><td>%s (load the %s instead)</td></tr>\n",
+            canvas.label, label);
+    } else {
+        media_format_label(ready->size_name, label, sizeof(label));
+        papplClientHTMLPrintf(client,
+            "              <tr><th>Current:</th><td>%s</td></tr>\n", label);
+    }
+    media_show_overprint(client, printer, &data);
+    papplClientHTMLPuts(client,
         "              <tr><th></th><td><input type=\"submit\" value=\"Save Changes\">"
         "</td></tr>\n"
         "            </tbody>\n"
         "          </table>\n"
-        "        </form>\n",
-        label);
+        "        </form>\n");
 
     papplClientHTMLPrinterFooter(client);
 }
@@ -499,13 +582,14 @@ static void media_show(pappl_client_t *client, pappl_printer_t *printer, const c
 static bool media_page_cb(pappl_client_t *client, void *data) {
     pappl_printer_t *printer = data;
     const char *status = NULL;
+    char buffer[256];
 
     // On failure, papplClientHTMLAuthorize has responded already.
     if (!papplClientHTMLAuthorize(client))
         return true;
 
     if (papplClientGetMethod(client) == HTTP_STATE_POST)
-        status = media_post(client, printer);
+        status = media_post(client, printer, buffer, sizeof(buffer));
 
     media_show(client, printer, status);
     return true;

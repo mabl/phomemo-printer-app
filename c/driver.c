@@ -11,11 +11,6 @@
 #include <unistd.h>
 #include "phomemo.h"
 
-// Vendor attributes: the job options the Rust driver reads.
-#define VENDOR_DITHER              "phomemo-dither"
-#define VENDOR_COMPRESSION         "phomemo-compression"
-#define VENDOR_OVERPRINT_VERTICAL  "phomemo-overprint-vertical"
-
 // ---------------------------------------------------------------------------
 // The PAPPL and CUPS values the Rust side mirrors (src/pappl.rs) must be the
 // real ones.
@@ -98,11 +93,10 @@ static const PmOps driver_ops = {
 // Raster callbacks — delegate to Rust
 // ---------------------------------------------------------------------------
 
-// Copy the printer's `<vendor option>-default` attribute, `default_name`,
-// into `value`; empty if it has none. PAPPL 1.4 looks vendor defaults up in
-// the job's attributes only, so the driver applies them itself.
-static void driver_vendor_default(pappl_printer_t *printer, const char *default_name,
-                                  char *value, size_t size) {
+// PAPPL 1.4 looks vendor defaults up in the job's attributes only, so the
+// driver applies them itself.
+void phomemo_vendor_default(pappl_printer_t *printer, const char *default_name,
+                            char *value, size_t size) {
     value[0] = '\0';
     // A copy, which is the caller's to delete.
     ipp_t *attrs = papplPrinterGetDriverAttributes(printer);
@@ -127,9 +121,9 @@ static bool driver_rstartjob(pappl_job_t *job, pappl_pr_options_t *options,
     };
     papplCopyString(context.ready_size_name, data.media_ready[0].size_name,
                     sizeof(context.ready_size_name));
-    driver_vendor_default(printer, VENDOR_OVERPRINT_VERTICAL "-default",
-                          context.overprint_vertical_default,
-                          sizeof(context.overprint_vertical_default));
+    phomemo_vendor_default(printer, VENDOR_OVERPRINT_VERTICAL "-default",
+                           context.overprint_vertical_default,
+                           sizeof(context.overprint_vertical_default));
 
     PmJob *ctx = pm_job_start(data.extension, context, &driver_ops, job, options,
                               device);
@@ -298,8 +292,9 @@ static bool driver_printfile(pappl_job_t *job, pappl_pr_options_t *options,
     return ok;
 }
 
-// Add the vendor attributes' supported and default values.
-static void driver_add_vendor_attrs(ipp_t **driver_attrs) {
+// Add the vendor attributes' supported and default values; those of
+// phomemo-overprint-vertical only if `overprint`, the model has canvases.
+static void driver_add_vendor_attrs(ipp_t **driver_attrs, bool overprint) {
     if (!driver_attrs)
         return;
 
@@ -355,6 +350,33 @@ static void driver_add_vendor_attrs(ipp_t **driver_attrs) {
         VENDOR_COMPRESSION "-default",
         NULL,
         "auto");
+
+    if (!overprint)
+        return;
+
+    // The policies and their default come from Rust (VerticalPolicy).
+    const char *vertical_values[8];
+    int num_vertical = 0;
+    for (const char *keyword;
+         num_vertical < (int)(sizeof(vertical_values) / sizeof(vertical_values[0])) &&
+         (keyword = pm_overprint_vertical_keyword((unsigned)num_vertical)) != NULL;)
+        vertical_values[num_vertical++] = keyword;
+
+    ippAddStrings(
+        attrs,
+        IPP_TAG_PRINTER,
+        IPP_TAG_KEYWORD,
+        VENDOR_OVERPRINT_VERTICAL "-supported",
+        num_vertical,
+        NULL,
+        vertical_values);
+    ippAddString(
+        attrs,
+        IPP_TAG_PRINTER,
+        IPP_TAG_KEYWORD,
+        VENDOR_OVERPRINT_VERTICAL "-default",
+        NULL,
+        pm_overprint_vertical_default());
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +479,8 @@ bool phomemo_driver_cb(pappl_system_t *system, const char *driver_name,
     dd->identify_supported = PAPPL_IDENTIFY_ACTIONS_NONE;
     dd->identify_default   = PAPPL_IDENTIFY_ACTIONS_NONE;
 
-    // Media list from Rust
+    // Media list from Rust: the catalog's sizes, the overprint canvases,
+    // then the custom range's bounds.
     _Static_assert(sizeof(dd->media) == sizeof(defaults.media),
                    "PmDriverDefaults.media must match pappl_pr_driver_data_t.media");
     dd->num_media = defaults.num_media;
@@ -485,11 +508,15 @@ bool phomemo_driver_cb(pappl_system_t *system, const char *driver_name,
 
     dd->format = "application/vnd.phomemo-raw";
 
-    // Vendor attributes: dithering algorithm and compression selection
+    // Vendor attributes: dithering algorithm and compression selection, and
+    // on a model with overprint canvases, the vertical policy.
+    bool overprint = pm_overprint_count(model) > 0;
     dd->num_vendor = 2;
     dd->vendor[0]  = VENDOR_DITHER;
     dd->vendor[1]  = VENDOR_COMPRESSION;
-    driver_add_vendor_attrs(driver_attrs);
+    if (overprint)
+        dd->vendor[dd->num_vendor++] = VENDOR_OVERPRINT_VERTICAL;
+    driver_add_vendor_attrs(driver_attrs, overprint);
 
     // Per-driver extension: the model, for the raster callbacks, the test
     // page and the media page. PAPPL only stores the (non-const) pointer.
