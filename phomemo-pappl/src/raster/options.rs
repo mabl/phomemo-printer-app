@@ -15,6 +15,8 @@ use phomemo_protocol::media::MediaTracking;
 
 use super::host::Log;
 use crate::media;
+use crate::models::MediaSize;
+use crate::overprint::{self, NamedMedia, VerticalPolicy};
 use crate::pappl::{
     LogLevel, PM_COLOR_MODE_BI_LEVEL, PM_CONTENT_TEXT, PM_CONTENT_TEXT_AND_GRAPHIC,
 };
@@ -52,11 +54,59 @@ pub struct RasterHeader {
     pub color_space: c_uint,
 }
 
-/// The print options the driver reads.
+/// What the driver reads once per job, when PAPPL starts it
+/// (`rstartjob_cb`), and keeps for all of its pages: the loaded media and
+/// the printer's defaults for vendor options (plan, D6 and D7).
+///
+/// The loaded media is `media_ready[0]` as it was when the job started; a
+/// change on the Media Setup page while the job prints applies to the next
+/// job.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JobContext {
+    /// The loaded ("ready") media's PWG size name; empty if none.
+    pub ready_name: String,
+    /// The loaded media's size in hundredths of a millimetre; length 0 for
+    /// a roll.
+    pub ready_size: MediaSize,
+    /// The loaded media's `media-tracking`, a `pappl_media_tracking_t` bit.
+    pub ready_tracking: c_ushort,
+    /// The printer's `phomemo-overprint-vertical-default`, if it has one.
+    pub overprint_vertical_default: Option<String>,
+}
+
+impl JobContext {
+    /// The loaded media.
+    #[must_use]
+    pub fn ready(&self) -> NamedMedia<'_> {
+        NamedMedia {
+            name: &self.ready_name,
+            size: self.ready_size,
+        }
+    }
+
+    /// The media tracking to print with on the loaded media; see
+    /// [`media::job_tracking`].
+    #[must_use]
+    pub const fn ready_tracking(&self) -> Option<MediaTracking> {
+        media::job_tracking(self.ready_tracking, self.ready_size.length)
+    }
+}
+
+/// The print options the driver reads.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PrintOptions {
     /// The page's raster header.
     pub raster: RasterHeader,
+    /// The header's `cupsPageSize`, in points; 0 x 0 when it has none.
+    pub cups_page_size: [f32; 2],
+    /// The header's `PageSize`, in points.
+    pub page_size: [c_uint; 2],
+    /// The header's `HWResolution`, in dots per inch.
+    pub resolution: [c_uint; 2],
+    /// The job media's PWG size name; empty if none.
+    pub media_name: String,
+    /// The job media's width in hundredths of a millimetre.
+    pub media_width: c_int,
     /// `print-darkness`: the job's offset from the printer's darkness,
     /// -100 to 100.
     pub print_darkness: c_int,
@@ -77,9 +127,51 @@ pub struct PrintOptions {
     pub phomemo_dither: Option<String>,
     /// The `phomemo-compression` vendor option, if set.
     pub phomemo_compression: Option<String>,
+    /// The `phomemo-overprint-vertical` vendor option, if set.
+    pub phomemo_overprint_vertical: Option<String>,
 }
 
 impl PrintOptions {
+    /// The job's media.
+    #[must_use]
+    pub fn media(&self) -> NamedMedia<'_> {
+        NamedMedia {
+            name: &self.media_name,
+            size: MediaSize {
+                width: self.media_width,
+                length: self.media_length,
+            },
+        }
+    }
+
+    /// The page's size in points, from its raster header; see
+    /// [`overprint::page_points`].
+    #[must_use]
+    pub fn page_points(&self) -> Option<[f32; 2]> {
+        let pixels = [self.raster.width, self.raster.height]
+            .map(|pixels| c_uint::try_from(pixels).unwrap_or(c_uint::MAX));
+        overprint::page_points(self.cups_page_size, self.page_size, pixels, self.resolution)
+    }
+
+    /// Which rows of an overprint canvas to send: the job's
+    /// `phomemo-overprint-vertical`, else the printer's default for it
+    /// (`printer_default`), else [`VerticalPolicy::Clip`]. An empty value
+    /// counts as none; an unknown one is logged and taken as `clip`.
+    ///
+    /// The printer's default is passed in because PAPPL 1.4 looks vendor
+    /// defaults up only in the job's own attributes (plan, D7).
+    pub fn overprint_vertical(
+        &self,
+        printer_default: Option<&str>,
+        log: &impl Log,
+    ) -> VerticalPolicy {
+        let value = [self.phomemo_overprint_vertical.as_deref(), printer_default]
+            .into_iter()
+            .flatten()
+            .find(|value| !value.is_empty());
+        vendor_option("phomemo-overprint-vertical", value, log).unwrap_or_default()
+    }
+
     /// The density to print with.
     ///
     /// As in lprint, the job's `print-darkness` is an offset from the
@@ -413,6 +505,115 @@ mod tests {
         assert_eq!(compression(Some("auto")).0, Compression::Auto);
         assert_eq!(compression(Some("ON")).0, Compression::On);
         assert_eq!(compression(Some("off")).0, Compression::Off);
+    }
+
+    fn vertical(job: Option<&str>, printer: Option<&str>) -> (VerticalPolicy, Vec<LogLevel>) {
+        let messages = Messages::default();
+        let options = PrintOptions {
+            phomemo_overprint_vertical: job.map(str::to_owned),
+            ..PrintOptions::default()
+        };
+        let policy = options.overprint_vertical(printer, &messages);
+        let levels = messages
+            .0
+            .borrow()
+            .iter()
+            .map(|(level, _)| *level)
+            .collect();
+        (policy, levels)
+    }
+
+    #[test]
+    fn overprint_vertical_falls_back_in_order() {
+        use VerticalPolicy::{Clip, Trailing};
+        // The job's value, then the printer's default, then clip.
+        assert_eq!(vertical(Some("trailing"), Some("clip")), (Trailing, vec![]));
+        assert_eq!(vertical(Some("clip"), Some("trailing")), (Clip, vec![]));
+        assert_eq!(vertical(None, Some("trailing")), (Trailing, vec![]));
+        assert_eq!(vertical(None, Some("TRAILING")), (Trailing, vec![]));
+        assert_eq!(vertical(None, None), (Clip, vec![]));
+        // An empty value is none.
+        assert_eq!(vertical(Some(""), Some("trailing")), (Trailing, vec![]));
+        assert_eq!(vertical(Some(""), Some("")), (Clip, vec![]));
+    }
+
+    #[test]
+    fn unknown_overprint_vertical_is_logged_and_treated_as_clip() {
+        use VerticalPolicy::Clip;
+        assert_eq!(
+            vertical(Some("full"), Some("trailing")),
+            (Clip, vec![LogLevel::Warn])
+        );
+        assert_eq!(vertical(None, Some("bogus")), (Clip, vec![LogLevel::Warn]));
+        let messages = Messages::default();
+        PrintOptions::default().overprint_vertical(Some("full"), &messages);
+        assert_eq!(
+            messages.0.borrow()[0].1,
+            "Ignoring unknown phomemo-overprint-vertical value \"full\"."
+        );
+    }
+
+    #[test]
+    fn page_points_come_from_the_header() {
+        let mut options = PrintOptions {
+            raster: RasterHeader {
+                width: 352,
+                height: 272,
+                ..RasterHeader::default()
+            },
+            ..PrintOptions::default()
+        };
+        // No resolution, no page size: unknown.
+        assert_eq!(options.page_points(), None);
+        options.resolution = [203, 203];
+        let [width, height] = options.page_points().expect("pixels at 203 dpi");
+        // 352 and 272 dots at 203 dpi: 124.85 x 96.47 points.
+        assert!((width - 124.847).abs() < 0.001, "{width}");
+        assert!((height - 96.473).abs() < 0.001, "{height}");
+        options.page_size = [124, 96];
+        assert_eq!(options.page_points(), Some([124.0, 96.0]));
+        options.cups_page_size = [124.72, 96.38];
+        assert_eq!(options.page_points(), Some([124.72, 96.38]));
+    }
+
+    #[test]
+    fn job_and_ready_media() {
+        let options = PrintOptions {
+            media_name: "custom_44x34mm_44x34mm".to_owned(),
+            media_width: 4400,
+            media_length: 3400,
+            ..PrintOptions::default()
+        };
+        assert_eq!(
+            options.media(),
+            NamedMedia {
+                name: "custom_44x34mm_44x34mm",
+                size: MediaSize {
+                    width: 4400,
+                    length: 3400
+                },
+            }
+        );
+        let context = JobContext {
+            ready_name: "om_40x30mm_40x30mm".to_owned(),
+            ready_size: MediaSize {
+                width: 4000,
+                length: 3000,
+            },
+            ready_tracking: PM_MEDIA_TRACKING_GAP,
+            overprint_vertical_default: None,
+        };
+        assert_eq!(context.ready().name, "om_40x30mm_40x30mm");
+        assert_eq!(context.ready_tracking(), Some(MediaTracking::Gap));
+        // Tracked as a roll when a roll is loaded.
+        let roll = JobContext {
+            ready_size: MediaSize {
+                width: 4000,
+                length: 0,
+            },
+            ..context
+        };
+        assert_eq!(roll.ready_tracking(), Some(MediaTracking::Continuous));
     }
 
     #[test]

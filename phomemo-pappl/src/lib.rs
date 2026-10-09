@@ -34,10 +34,6 @@ mod bt;
 mod defaults;
 mod media;
 mod models;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the raster driver does not use profiles yet")
-)]
 mod overprint;
 mod pappl;
 mod raster;
@@ -49,4 +45,6 @@ pub use crate::bt::ffi::PmBtConnection;
 pub use crate::defaults::{PmDriverDefaults, PmMediaDefault};
 pub use crate::models::PmModel;
 pub use crate::pappl::*;
-pub use crate::raster::ffi::{PmJob, PmJobSent, PmOps, PmOptions};
+pub use crate::raster::ffi::{
+    PM_MEDIA_NAME_SIZE, PM_VENDOR_VALUE_SIZE, PmJob, PmJobContext, PmJobSent, PmOps, PmOptions,
+};

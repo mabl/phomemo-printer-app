@@ -288,6 +288,20 @@ Files: `phomemo-pappl/src/raster/{page.rs,mod.rs,options.rs,ffi.rs}`,
   bounded by the head width.
 - `Job::start_page` resolves the profile, logs profile/rule/policy, fails
   the page on a resolution error; `end_page` uses the stock's tracking.
+- Resolution guard: a page that resolves to a profile is printed as an
+  ordinary page, with a warning that the design must be rasterized at the
+  model's dpi at 100 %, if its `HWResolution` is set and is not the
+  model's dpi in both axes, or its width differs from the canvas's width
+  in dots (`dots_round(canvas width)`, 352 at 203 dpi) by more than 4
+  dots. A shrunk-to-fit or other-resolution raster has no correct
+  geometry; printing it as it is matches what it would have done before.
+  The same happens, with a warning, when the raster does not reach the
+  label (`Geometry::new` is `None`). The raster header is checked first,
+  the policy is read only once a geometry exists, and the profile line is
+  logged only once the page has started.
+- Tracking fallback for profile pages: the ready media's tracking if it is
+  a single known `pappl_media_tracking_t` flag, else the job's tracking,
+  else gap (a profile's stock is labels).
 
 Tests: synthetic canvas pages (352 x 272 `W`, 351 x 271 `K`, odd `x0`) with
 marks at the label corners and in each bleed: marks land at the expected
@@ -426,7 +440,7 @@ step; the docs describe it.
 | --- | --- | --- |
 | WP1 Plan | done | `docs: plan overprint label profiles` |
 | WP2 Profile model and geometry | done | `pappl: add overprint profiles and their geometry` |
-| WP3 Raster path | pending | |
+| WP3 Raster path | done | `pappl: print overprint canvases anchored to the physical label` |
 | WP3b Printer defaults for vendor options | pending | |
 | WP4 Advertising, Media Setup, names | pending | |
 | WP5 Documentation and template | pending | |

@@ -12,8 +12,9 @@
 #include "phomemo.h"
 
 // Vendor attributes: the job options the Rust driver reads.
-#define VENDOR_DITHER      "phomemo-dither"
-#define VENDOR_COMPRESSION "phomemo-compression"
+#define VENDOR_DITHER              "phomemo-dither"
+#define VENDOR_COMPRESSION         "phomemo-compression"
+#define VENDOR_OVERPRINT_VERTICAL  "phomemo-overprint-vertical"
 
 // ---------------------------------------------------------------------------
 // The PAPPL and CUPS values the Rust side mirrors (src/pappl.rs) must be the
@@ -42,6 +43,9 @@ ASSERT_SAME(PM_CONTENT_TEXT_AND_GRAPHIC, PAPPL_CONTENT_TEXT_AND_GRAPHIC);
 ASSERT_SAME(PM_CSPACE_W, CUPS_CSPACE_W);
 ASSERT_SAME(PM_CSPACE_K, CUPS_CSPACE_K);
 ASSERT_SAME(PM_CSPACE_SW, CUPS_CSPACE_SW);
+// The job context holds the ready media's whole name.
+ASSERT_SAME(sizeof(((PmJobContext *)0)->ready_size_name),
+            sizeof(((pappl_media_col_t *)0)->size_name));
 
 // ---------------------------------------------------------------------------
 // The PAPPL functions the Rust driver calls back
@@ -69,6 +73,16 @@ static PmOptions driver_options(const pappl_pr_options_t *options) {
                                              options->num_vendor, options->vendor),
         .compression         = cupsGetOption(VENDOR_COMPRESSION,
                                              options->num_vendor, options->vendor),
+        .media_size_name     = options->media.size_name,
+        .media_width         = options->media.size_width,
+        .cups_page_size      = { options->header.cupsPageSize[0],
+                                 options->header.cupsPageSize[1] },
+        .page_size           = { options->header.PageSize[0],
+                                 options->header.PageSize[1] },
+        .resolution          = { options->header.HWResolution[0],
+                                 options->header.HWResolution[1] },
+        .overprint_vertical  = cupsGetOption(VENDOR_OVERPRINT_VERTICAL,
+                                             options->num_vendor, options->vendor),
     };
 }
 
@@ -84,12 +98,41 @@ static const PmOps driver_ops = {
 // Raster callbacks — delegate to Rust
 // ---------------------------------------------------------------------------
 
+// Copy the printer's `<vendor option>-default` attribute, `default_name`,
+// into `value`; empty if it has none. PAPPL 1.4 looks vendor defaults up in
+// the job's attributes only, so the driver applies them itself.
+static void driver_vendor_default(pappl_printer_t *printer, const char *default_name,
+                                  char *value, size_t size) {
+    value[0] = '\0';
+    // A copy, which is the caller's to delete.
+    ipp_t *attrs = papplPrinterGetDriverAttributes(printer);
+    ipp_attribute_t *attr = ippFindAttribute(attrs, default_name, IPP_TAG_ZERO);
+    const char *found = attr ? ippGetString(attr, 0, NULL) : NULL;
+    if (found)
+        papplCopyString(value, found, size);
+    ippDelete(attrs);
+}
+
 static bool driver_rstartjob(pappl_job_t *job, pappl_pr_options_t *options,
                              pappl_device_t *device) {
+    pappl_printer_t *printer = papplJobGetPrinter(job);
     pappl_pr_driver_data_t data;
-    papplPrinterGetDriverData(papplJobGetPrinter(job), &data);
+    papplPrinterGetDriverData(printer, &data);
 
-    PmJob *ctx = pm_job_start(data.extension, &driver_ops, job, options, device);
+    // Read once per job: the loaded media and the printer's defaults.
+    PmJobContext context = {
+        .ready_width    = data.media_ready[0].size_width,
+        .ready_length   = data.media_ready[0].size_length,
+        .ready_tracking = data.media_ready[0].tracking,
+    };
+    papplCopyString(context.ready_size_name, data.media_ready[0].size_name,
+                    sizeof(context.ready_size_name));
+    driver_vendor_default(printer, VENDOR_OVERPRINT_VERTICAL "-default",
+                          context.overprint_vertical_default,
+                          sizeof(context.overprint_vertical_default));
+
+    PmJob *ctx = pm_job_start(data.extension, context, &driver_ops, job, options,
+                              device);
     papplJobSetData(job, ctx);
     if (ctx)
         phomemo_bt_start_job(job, device);

@@ -15,8 +15,8 @@ use std::slice;
 
 use libc::ssize_t;
 
-use super::{Error, Host, Job, Log, PrintOptions, RasterHeader, Sent};
-use crate::models::{Model, PmModel};
+use super::{Error, Host, Job, JobContext, Log, PrintOptions, RasterHeader, Sent};
+use crate::models::{MediaSize, Model, PmModel};
 use crate::pappl::{LogLevel, PapplDevice, PapplJob, PapplPrOptions};
 
 /// The PAPPL functions the driver calls back. Every entry is required.
@@ -71,6 +71,75 @@ pub struct PmOptions {
     pub dither: *const c_char,
     /// The `phomemo-compression` vendor option, or NULL.
     pub compression: *const c_char,
+    /// `media.size_name`: never NULL from `c/driver.c`, it points into
+    /// `options->media` and is valid during the callback only. NULL is
+    /// read as no name.
+    pub media_size_name: *const c_char,
+    /// `media.size_width`.
+    pub media_width: c_int,
+    /// `header.cupsPageSize`, in points.
+    pub cups_page_size: [f32; 2],
+    /// `header.PageSize`, in points.
+    pub page_size: [c_uint; 2],
+    /// `header.HWResolution`, in dots per inch.
+    pub resolution: [c_uint; 2],
+    /// The `phomemo-overprint-vertical` vendor option, or NULL.
+    pub overprint_vertical: *const c_char,
+}
+
+/// Bytes in [`PmJobContext::ready_size_name`]: `pappl_media_col_t`'s
+/// `size_name`, which `c/driver.c` checks.
+pub const PM_MEDIA_NAME_SIZE: usize = 64;
+
+/// Bytes in a vendor option default in [`PmJobContext`], terminating NUL
+/// included; a longer value is cut short.
+pub const PM_VENDOR_VALUE_SIZE: usize = 32;
+
+/// What the driver reads once per job, when it starts, copied by value:
+/// the loaded media (`media_ready[0]`) and the printer's defaults for
+/// vendor options, which PAPPL 1.4 does not apply to jobs itself.
+///
+/// The strings are copies, so nothing here points into PAPPL; each should
+/// be NUL-terminated, but one that fills its array is read to its end.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PmJobContext {
+    /// `media_ready[0].size_name`.
+    pub ready_size_name: [c_char; PM_MEDIA_NAME_SIZE],
+    /// `media_ready[0].size_width`.
+    pub ready_width: c_int,
+    /// `media_ready[0].size_length`.
+    pub ready_length: c_int,
+    /// `media_ready[0].tracking`.
+    pub ready_tracking: c_ushort,
+    /// The printer's `phomemo-overprint-vertical-default`; empty if none.
+    pub overprint_vertical_default: [c_char; PM_VENDOR_VALUE_SIZE],
+}
+
+impl PmJobContext {
+    /// The context as the driver keeps it.
+    fn read(&self) -> JobContext {
+        JobContext {
+            ready_name: fixed_string(&self.ready_size_name).unwrap_or_default(),
+            ready_size: MediaSize {
+                width: self.ready_width,
+                length: self.ready_length,
+            },
+            ready_tracking: self.ready_tracking,
+            overprint_vertical_default: fixed_string(&self.overprint_vertical_default),
+        }
+    }
+}
+
+/// An owned copy of the string in `chars`: up to its first NUL, or all of
+/// it if there is none; `None` if it is empty.
+fn fixed_string(chars: &[c_char]) -> Option<String> {
+    let bytes: Vec<u8> = chars
+        .iter()
+        .map(|&c| c.to_ne_bytes()[0])
+        .take_while(|&byte| byte != 0)
+        .collect();
+    (!bytes.is_empty()).then(|| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// The driver's state for one job, owned by C between callbacks
@@ -122,9 +191,17 @@ impl Ops<'_> {
         // SAFETY: `options` is the callback's `pappl_pr_options_t`
         // (`Ops::new`).
         let raw = unsafe { (self.vtable.options)(self.options.as_ptr()) };
-        // SAFETY: the snapshot's strings are NULL or vendor option values
-        // owned by `options`, which outlives this call.
-        let (dither, compression) = unsafe { (c_string(raw.dither), c_string(raw.compression)) };
+        // SAFETY: the snapshot's strings are NULL or NUL-terminated strings
+        // owned by `options` - vendor option values and the media's name -
+        // which outlives this call; they are copied here.
+        let (dither, compression, overprint_vertical, media_name) = unsafe {
+            (
+                c_string(raw.dither),
+                c_string(raw.compression),
+                c_string(raw.overprint_vertical),
+                c_string(raw.media_size_name),
+            )
+        };
         PrintOptions {
             raster: RasterHeader {
                 width: to_usize(raw.width),
@@ -133,6 +210,12 @@ impl Ops<'_> {
                 bits_per_pixel: raw.bits_per_pixel,
                 color_space: raw.color_space,
             },
+            cups_page_size: raw.cups_page_size,
+            page_size: raw.page_size,
+            resolution: raw.resolution,
+            media_name: media_name.unwrap_or_default(),
+            media_width: raw.media_width,
+            phomemo_overprint_vertical: overprint_vertical,
             print_darkness: raw.print_darkness,
             darkness_configured: raw.darkness_configured,
             print_speed: raw.print_speed,
@@ -245,7 +328,8 @@ fn report(log: &impl Log, result: Result<(), Error>) -> bool {
     }
 }
 
-/// Start a raster job on `model`, for PAPPL's `rstartjob_cb`.
+/// Start a raster job on `model`, for PAPPL's `rstartjob_cb`, with
+/// `context`, which holds for all of the job's pages.
 ///
 /// Returns the job's state, to pass to the other `pm_job_` functions and
 /// finally to [`pm_job_end`], or NULL if the job cannot start. `model` is
@@ -259,6 +343,7 @@ fn report(log: &impl Log, result: Result<(), Error>) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pm_job_start(
     model: *const PmModel,
+    context: PmJobContext,
     ops: *const PmOps,
     job: *mut PapplJob,
     options: *const PapplPrOptions,
@@ -272,7 +357,7 @@ pub unsafe extern "C" fn pm_job_start(
         host.log(LogLevel::Error, "Unable to print: unknown printer model.");
         return ptr::null_mut();
     };
-    Box::into_raw(Box::new(PmJob(Job::new(model))))
+    Box::into_raw(Box::new(PmJob(Job::new(model, context.read()))))
 }
 
 /// Start a page, for PAPPL's `rstartpage_cb`.
@@ -417,7 +502,10 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     use super::*;
-    use crate::pappl::{PM_CSPACE_SW, PM_LOGLEVEL_ERROR, PM_LOGLEVEL_WARN, PM_MEDIA_TRACKING_GAP};
+    use crate::pappl::{
+        PM_CSPACE_SW, PM_LOGLEVEL_ERROR, PM_LOGLEVEL_INFO, PM_LOGLEVEL_WARN,
+        PM_MEDIA_TRACKING_CONTINUOUS, PM_MEDIA_TRACKING_GAP,
+    };
 
     thread_local! {
         static WRITTEN: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
@@ -468,7 +556,34 @@ mod tests {
             content_optimize: 0,
             dither: ptr::null(),
             compression: c"off".as_ptr(),
+            media_size_name: c"om_20x10mm_20x10mm".as_ptr(),
+            media_width: 2000,
+            cups_page_size: [0.0; 2],
+            page_size: [57, 28],
+            resolution: [203, 203],
+            overprint_vertical: ptr::null(),
         }
+    }
+
+    /// A job context with nothing loaded.
+    fn no_context() -> PmJobContext {
+        PmJobContext {
+            ready_size_name: [0; PM_MEDIA_NAME_SIZE],
+            ready_width: 0,
+            ready_length: 0,
+            ready_tracking: 0,
+            overprint_vertical_default: [0; PM_VENDOR_VALUE_SIZE],
+        }
+    }
+
+    /// `string` in a C array of `N` characters, cut short to fit with no
+    /// NUL if it is as long or longer.
+    fn chars<const N: usize>(string: &str) -> [c_char; N] {
+        let mut chars = [0; N];
+        for (char, byte) in chars.iter_mut().zip(string.bytes()) {
+            *char = c_char::from_ne_bytes([byte]);
+        }
+        chars
     }
 
     const OPS: PmOps = PmOps {
@@ -498,7 +613,7 @@ mod tests {
         // header's 16 bytes, and the state is used as `pm_job_start` returns
         // it and freed by `pm_job_end` only.
         unsafe {
-            let ctx = pm_job_start(model.view(), &OPS, job, options, device);
+            let ctx = pm_job_start(model.view(), no_context(), &OPS, job, options, device);
             assert!(!ctx.is_null());
             assert!(pm_job_start_page(ctx, &OPS, job, options, device));
             for _ in 0..2 {
@@ -545,9 +660,21 @@ mod tests {
         // SAFETY: NULL is accepted for every pointer, and the fake
         // callbacks accept any others.
         unsafe {
-            assert!(pm_job_start(model.view(), ptr::null(), job, options, device).is_null());
-            assert!(pm_job_start(model.view(), &OPS, job, ptr::null(), device).is_null());
-            assert!(pm_job_start(ptr::null(), &OPS, job, options, device).is_null());
+            assert!(
+                pm_job_start(
+                    model.view(),
+                    no_context(),
+                    ptr::null(),
+                    job,
+                    options,
+                    device
+                )
+                .is_null()
+            );
+            assert!(
+                pm_job_start(model.view(), no_context(), &OPS, job, ptr::null(), device).is_null()
+            );
+            assert!(pm_job_start(ptr::null(), no_context(), &OPS, job, options, device).is_null());
             assert!(!pm_job_start_page(
                 ptr::null_mut(),
                 &OPS,
@@ -586,7 +713,7 @@ mod tests {
         // SAFETY: as in `a_page_through_the_c_interface`; a NULL line is
         // accepted.
         unsafe {
-            let ctx = pm_job_start(model.view(), &OPS, job, options, device);
+            let ctx = pm_job_start(model.view(), no_context(), &OPS, job, options, device);
             assert!(pm_job_start_page(ctx, &OPS, job, options, device));
             assert!(!pm_job_write_line(
                 ctx,
@@ -600,6 +727,180 @@ mod tests {
         }
         assert!(WRITTEN.take().is_empty());
         LOGGED.take();
+        OPTIONS_READ.take();
+    }
+
+    /// A 44 x 34 mm overprint canvas, 352 x 272 dots, named only by its
+    /// size (CUPS' driverless path), asking for `trailing`.
+    unsafe extern "C" fn canvas_options(_: *const PapplPrOptions) -> PmOptions {
+        PmOptions {
+            width: 352,
+            height: 272,
+            bytes_per_line: 352,
+            media_size_name: c"custom_44x34mm_44x34mm".as_ptr(),
+            media_width: 4400,
+            media_length: 3400,
+            media_tracking: PM_MEDIA_TRACKING_CONTINUOUS,
+            cups_page_size: [124.72, 96.38],
+            page_size: [125, 96],
+            overprint_vertical: c"trailing".as_ptr(),
+            // SAFETY: `options` accepts any pointer.
+            ..unsafe { options(ptr::null()) }
+        }
+    }
+
+    /// The same page, without a media name or a usable vendor value.
+    unsafe extern "C" fn unnamed_options(_: *const PapplPrOptions) -> PmOptions {
+        PmOptions {
+            media_size_name: ptr::null(),
+            overprint_vertical: c"".as_ptr(),
+            // SAFETY: `canvas_options` accepts any pointer.
+            ..unsafe { canvas_options(ptr::null()) }
+        }
+    }
+
+    const CANVAS_OPS: PmOps = PmOps {
+        options: canvas_options,
+        ..OPS
+    };
+
+    #[test]
+    fn options_are_copied() {
+        let (job, options, device) = pappl_objects();
+        for (callback, name, vertical) in [
+            (
+                canvas_options as unsafe extern "C" fn(_) -> _,
+                "custom_44x34mm_44x34mm",
+                Some("trailing"),
+            ),
+            // An empty value is kept; `overprint_vertical` reads it as none.
+            (unnamed_options, "", Some("")),
+        ] {
+            let ops = PmOps {
+                options: callback,
+                ..OPS
+            };
+            // SAFETY: the fake callbacks accept any pointers.
+            let host = unsafe { Ops::new(&raw const ops, job, options, device) }.expect("non-NULL");
+            let read = host.options();
+            assert_eq!(read.media_name, name);
+            assert_eq!(read.phomemo_overprint_vertical.as_deref(), vertical);
+            assert_eq!(read.media_width, 4400);
+            assert_eq!(read.media_length, 3400);
+            // Copied exactly.
+            let bits = |points: [f32; 2]| points.map(f32::to_bits);
+            assert_eq!(bits(read.cups_page_size), bits([124.72, 96.38]));
+            assert_eq!(read.page_size, [125, 96]);
+            assert_eq!(read.resolution, [203, 203]);
+            assert_eq!(read.page_points().map(bits), Some(bits([124.72, 96.38])));
+        }
+        OPTIONS_READ.take();
+    }
+
+    #[test]
+    fn job_context_strings_are_copied_safely() {
+        let context = PmJobContext {
+            ready_size_name: chars("om_40x30mm_40x30mm"),
+            ready_width: 4000,
+            ready_length: 3000,
+            ready_tracking: PM_MEDIA_TRACKING_GAP,
+            overprint_vertical_default: chars("trailing"),
+        };
+        assert_eq!(
+            context.read(),
+            JobContext {
+                ready_name: "om_40x30mm_40x30mm".to_owned(),
+                ready_size: MediaSize {
+                    width: 4000,
+                    length: 3000
+                },
+                ready_tracking: PM_MEDIA_TRACKING_GAP,
+                overprint_vertical_default: Some("trailing".to_owned()),
+            }
+        );
+        // Empty strings are none.
+        assert_eq!(no_context().read(), JobContext::default());
+        // Arrays without a NUL are read to their end, and no further.
+        let long = "x".repeat(100);
+        let unterminated = PmJobContext {
+            ready_size_name: chars(&long),
+            overprint_vertical_default: chars(&long),
+            ..no_context()
+        };
+        assert_eq!(
+            unterminated.ready_size_name.last(),
+            Some(&c_char::from_ne_bytes(*b"x"))
+        );
+        let read = unterminated.read();
+        assert_eq!(read.ready_name, "x".repeat(PM_MEDIA_NAME_SIZE));
+        assert_eq!(
+            read.overprint_vertical_default,
+            Some("x".repeat(PM_VENDOR_VALUE_SIZE))
+        );
+        // Bytes after a NUL are not part of the string.
+        let mut after_nul = chars::<PM_VENDOR_VALUE_SIZE>("clip");
+        after_nul[4] = 0;
+        after_nul[5] = c_char::from_ne_bytes(*b"x");
+        assert_eq!(fixed_string(&after_nul).as_deref(), Some("clip"));
+        assert_eq!(fixed_string(&[]), None);
+    }
+
+    #[test]
+    fn a_canvas_through_the_c_interface() {
+        let model = Model::by_name("M220").expect("known model");
+        let (job, options, device) = pappl_objects();
+        let ops = &CANVAS_OPS;
+        // 40 x 30 mm gap labels are loaded.
+        let context = PmJobContext {
+            ready_size_name: chars("om_40x30mm_40x30mm"),
+            ready_width: 4000,
+            ready_length: 3000,
+            ready_tracking: PM_MEDIA_TRACKING_GAP,
+            ..no_context()
+        };
+        let line = [255u8; 352];
+        // SAFETY: as in `a_page_through_the_c_interface`, with 352-byte
+        // lines.
+        unsafe {
+            let ctx = pm_job_start(model.view(), context, ops, job, options, device);
+            assert!(!ctx.is_null());
+            assert!(pm_job_start_page(ctx, ops, job, options, device));
+            for _ in 0..272 {
+                assert!(pm_job_write_line(
+                    ctx,
+                    ops,
+                    job,
+                    options,
+                    device,
+                    line.as_ptr()
+                ));
+            }
+            assert!(pm_job_end_page(ctx, ops, job, options, device));
+            assert!(pm_job_end(ctx, ops, job, options, device));
+        }
+        let written = WRITTEN.take();
+        assert_eq!(
+            written[..17],
+            [
+                0x1f, 0x11, 0x24, 30, // LEFT_MARGIN 72 - 42 bytes
+                0x1b, 0x4e, 0x04, 8, // density 8
+                0x1f, 0x11, 0x0a, // the loaded stock's gap tracking
+                0x1b, 0x40, // ESC @
+                0x1f, 0x11, 0x21, 0x01, // one copy
+            ]
+        );
+        // The job's trailing policy: 42 bytes x 256 rows.
+        assert_eq!(written[17..25], [0x1d, 0x76, 0x30, 0x00, 42, 0, 0, 1]);
+        assert_eq!(written.len(), 25 + 42 * 256);
+        let logged = LOGGED.take();
+        assert!(
+            logged
+                .iter()
+                .any(|(level, message)| *level == PM_LOGLEVEL_INFO
+                    && message.contains("om_40x30mm-overprint-2mm_44x34mm")
+                    && message.contains("trailing")),
+            "{logged:?}"
+        );
         OPTIONS_READ.take();
     }
 }

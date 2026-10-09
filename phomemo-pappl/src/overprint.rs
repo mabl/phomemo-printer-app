@@ -154,6 +154,14 @@ impl OverprintProfile {
         )
     }
 
+    /// The canvas's width in dots at `dpi`, rounded to nearest as
+    /// [`Geometry`] rounds the bleed: what a raster of the canvas at `dpi`
+    /// and 100 % is wide, give or take a dot. `None` if it does not fit.
+    #[must_use]
+    pub fn canvas_width_dots(&self, dpi: u16) -> Option<usize> {
+        usize::try_from((i64::from(self.canvas().width) * i64::from(dpi) + 1270) / 2540).ok()
+    }
+
     /// Whether `size_name` is this profile's canvas name, ignoring ASCII
     /// case and surrounding whitespace.
     #[must_use]
@@ -180,6 +188,18 @@ pub enum Rule {
     MediaSize,
     /// 3: the raster header's page size is the canvas size.
     PageSize,
+}
+
+impl Rule {
+    /// What matched, for the job's log: `its media name`, ...
+    #[must_use]
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::Name => "its media name",
+            Self::MediaSize => "its media size",
+            Self::PageSize => "its page size",
+        }
+    }
 }
 
 /// A message about a resolution, for the job's log.
@@ -660,6 +680,7 @@ impl Geometry {
 
     /// The canvas column output column `output` shows, or `None` where the
     /// output is white.
+    #[cfg(test)]
     #[must_use]
     pub fn canvas_column(&self, output: usize) -> Option<usize> {
         let offset = output.checked_sub(self.pad_left)?;
@@ -668,6 +689,7 @@ impl Geometry {
 
     /// The head dot canvas column `column` lands on, or `None` if it is
     /// not printed.
+    #[cfg(test)]
     #[must_use]
     pub fn head_dot(&self, column: usize) -> Option<usize> {
         self.source_columns
@@ -785,6 +807,14 @@ mod tests {
             profile.canvas_name(),
             "om_40x30mm-overprint-1.5-2-0-2.5mm_41.5x34.5mm"
         );
+    }
+
+    #[test]
+    fn canvas_width_in_dots() {
+        // 44 mm: 351.65 dots at 203 dpi, 519.69 at 300.
+        assert_eq!(m220_profile().canvas_width_dots(203), Some(352));
+        assert_eq!(m220_profile().canvas_width_dots(300), Some(520));
+        assert_eq!(m220_profile().canvas_width_dots(0), Some(0));
     }
 
     #[test]

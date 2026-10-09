@@ -7,6 +7,10 @@
 //! rather than by whatever size the job declares, and
 //! [`rasterize`](Page::rasterize)s it. [`encode_raster`] then chooses
 //! whether to compress the bitmap.
+//!
+//! An overprint canvas ([`crate::overprint`]) has its own layout,
+//! [`Layout::overprint`]: the kept columns of each line with white columns
+//! before and after them, as its [`Geometry`] says.
 
 use std::ffi::c_uint;
 use std::ops::Range;
@@ -18,6 +22,7 @@ use phomemo_protocol::job::{EncodeError, Raster};
 use super::Error;
 use super::host::Log;
 use super::options::{Compression, RasterHeader};
+use crate::overprint::Geometry;
 use crate::pappl::{LogLevel, PM_CSPACE_K, PM_CSPACE_SW, PM_CSPACE_W};
 
 /// The most rows a raster can have: its header counts them in 16 bits.
@@ -58,9 +63,24 @@ impl Polarity {
             _ => None,
         }
     }
+
+    /// The value of a white pixel, before any inversion: no ink (0) for
+    /// `K`, full luminance (255) for `W` and `SW` - what PAPPL pads lines
+    /// with (`job-process.c`).
+    const fn white(self) -> u8 {
+        match self {
+            Self::Ink => 0,
+            Self::Light => u8::MAX,
+        }
+    }
 }
 
 /// Which part of a page reaches the head, and whether the page is turned.
+///
+/// Each kept line is [`pad_left`](Self::pad_left) white pixels, the pixels
+/// [`columns`](Self::columns), then [`pad_right`](Self::pad_right) white
+/// pixels: [`line_width`](Self::line_width) pixels in all. Only an
+/// overprint canvas ([`Layout::overprint`]) is padded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Layout {
     /// Whether the page is turned a quarter turn, by [`SIDEWAYS`].
@@ -69,6 +89,10 @@ pub struct Layout {
     pub columns: Range<usize>,
     /// The lines that are kept.
     pub rows: Range<usize>,
+    /// White pixels before the kept pixels of each line.
+    pub pad_left: usize,
+    /// White pixels after the kept pixels of each line.
+    pub pad_right: usize,
 }
 
 impl Layout {
@@ -99,14 +123,40 @@ impl Layout {
                 turn,
                 columns: 0..width,
                 rows: centred(height, head),
+                pad_left: 0,
+                pad_right: 0,
             }
         } else {
             Self {
                 turn,
                 columns: centred(width, head),
                 rows: 0..height,
+                pad_left: 0,
+                pad_right: 0,
             }
         }
+    }
+
+    /// The layout of an overprint canvas (plan, section 2): never turned,
+    /// the canvas columns and rows `geometry` keeps, padded with white to
+    /// its [`out_width`](Geometry::out_width).
+    #[must_use]
+    pub fn overprint(geometry: &Geometry) -> Self {
+        Self {
+            turn: false,
+            columns: geometry.source_columns.clone(),
+            rows: geometry.rows.clone(),
+            pad_left: geometry.pad_left,
+            pad_right: geometry.pad_right,
+        }
+    }
+
+    /// Pixels in each kept line, padding included.
+    #[must_use]
+    pub fn line_width(&self) -> usize {
+        self.pad_left
+            .saturating_add(self.columns.len())
+            .saturating_add(self.pad_right)
     }
 
     /// Dots across the head: the bitmap's width.
@@ -115,7 +165,7 @@ impl Layout {
         if self.turn {
             self.rows.len()
         } else {
-            self.columns.len()
+            self.line_width()
         }
     }
 
@@ -123,11 +173,35 @@ impl Layout {
     #[must_use]
     pub fn along(&self) -> usize {
         if self.turn {
-            self.columns.len()
+            self.line_width()
         } else {
             self.rows.len()
         }
     }
+}
+
+/// Whether `header` describes a page the driver can read: see
+/// [`Page::new`]'s errors.
+pub(super) fn validate_header(header: &RasterHeader) -> Result<(), Error> {
+    check_header(header).map(drop)
+}
+
+/// The polarity of the pixels `header` describes, if the driver reads them
+/// and the page has a length and a consistent width.
+fn check_header(header: &RasterHeader) -> Result<Polarity, Error> {
+    let polarity = Polarity::new(header.bits_per_pixel, header.color_space).ok_or(
+        Error::UnsupportedRaster {
+            bits_per_pixel: header.bits_per_pixel,
+            color_space: header.color_space,
+        },
+    )?;
+    if header.height == 0 {
+        return Err(Error::NoLength);
+    }
+    if header.width == 0 || header.bytes_per_line != header.width {
+        return Err(Error::BadGeometry(*header));
+    }
+    Ok(polarity)
 }
 
 /// The middle `max` of `len` positions, or all of them.
@@ -163,44 +237,62 @@ impl Page {
         sideways_media: bool,
         log: &impl Log,
     ) -> Result<Self, Error> {
-        let polarity = Polarity::new(header.bits_per_pixel, header.color_space).ok_or(
-            Error::UnsupportedRaster {
-                bits_per_pixel: header.bits_per_pixel,
-                color_space: header.color_space,
-            },
-        )?;
-        if header.height == 0 {
-            return Err(Error::NoLength);
+        let polarity = check_header(header)?;
+        let layout = Layout::new(header.width, header.height, head, sideways_media);
+        let page = Self::with_layout(header, polarity, layout)?;
+
+        let across = if page.layout.turn {
+            header.height
+        } else {
+            header.width
+        };
+        if page.layout.across() < across {
+            log.log(
+                LogLevel::Warn,
+                &format!(
+                    "The page is {across} dots across the head, which prints {}; cropping the rest evenly from both sides.",
+                    page.layout.across(),
+                ),
+            );
         }
-        if header.width == 0 || header.bytes_per_line != header.width {
+        Ok(page)
+    }
+
+    /// An empty overprint canvas described by `header`, laid out as
+    /// `geometry` says ([`Layout::overprint`]): the columns past the
+    /// bitmap - the right bleed - are dropped without a warning, as the
+    /// design intends.
+    ///
+    /// # Errors
+    ///
+    /// As [`Page::new`]; also if `geometry` keeps columns or rows the
+    /// header does not have.
+    pub fn overprint(header: &RasterHeader, geometry: &Geometry) -> Result<Self, Error> {
+        let polarity = check_header(header)?;
+        let layout = Layout::overprint(geometry);
+        if layout.columns.end > header.width || layout.rows.end > header.height {
             return Err(Error::BadGeometry(*header));
         }
-        let layout = Layout::new(header.width, header.height, head, sideways_media);
+        Self::with_layout(header, polarity, layout)
+    }
+
+    /// An empty page described by `header` in `polarity`, laid out as
+    /// `layout` says.
+    fn with_layout(
+        header: &RasterHeader,
+        polarity: Polarity,
+        layout: Layout,
+    ) -> Result<Self, Error> {
         if layout.along() > usize::from(MAX_ROWS) {
             return Err(Error::TooManyLines {
                 lines: layout.along(),
             });
         }
         // At most the head's width times a raster's rows.
-        let size = layout.columns.len() * layout.rows.len();
+        let size = layout.line_width().saturating_mul(layout.rows.len());
         let mut data = Vec::new();
         data.try_reserve_exact(size)
             .map_err(|_| Error::OutOfMemory { bytes: size })?;
-
-        let across = if layout.turn {
-            header.height
-        } else {
-            header.width
-        };
-        if layout.across() < across {
-            log.log(
-                LogLevel::Warn,
-                &format!(
-                    "The page is {across} dots across the head, which prints {}; cropping the rest evenly from both sides.",
-                    layout.across(),
-                ),
-            );
-        }
         Ok(Self {
             polarity,
             line_len: header.bytes_per_line,
@@ -241,8 +333,14 @@ impl Page {
             });
         }
         if self.layout.rows.contains(&self.lines_received) {
+            let white = self.polarity.white();
+            // Within the capacity reserved for the page: no reallocation.
+            self.data
+                .resize(self.data.len() + self.layout.pad_left, white);
             self.data
                 .extend_from_slice(&line[self.layout.columns.clone()]);
+            self.data
+                .resize(self.data.len() + self.layout.pad_right, white);
         }
         self.lines_received += 1;
         Ok(())
@@ -255,7 +353,7 @@ impl Page {
     ///
     /// Never in practice: the buffer holds whole cropped lines.
     pub fn rasterize(self, algorithm: Algorithm, log: &impl Log) -> Result<MonoBitmap, Error> {
-        let width = self.layout.columns.len();
+        let width = self.layout.line_width();
         let lines = self.data.len() / width;
         let mut image = GrayImage::new(width, lines, self.data)?;
         if self.polarity == Polarity::Ink {
@@ -330,6 +428,7 @@ mod tests {
     use std::cell::RefCell;
 
     use super::*;
+    use crate::overprint::{Bleed, OverprintProfile, VerticalPolicy};
 
     #[derive(Default)]
     struct Messages(RefCell<Vec<(LogLevel, String)>>);
@@ -573,6 +672,129 @@ mod tests {
         // Top-left of the kept part ends up bottom-left.
         assert!(bitmap.pixel(0, 15));
         assert_eq!(messages.levels(), [LogLevel::Warn]);
+    }
+
+    // Overprint canvases.
+
+    /// The M220's profile with a 1.9 mm left bleed: x0 is 15, so one white
+    /// column comes first (plan, section 2.1).
+    fn odd_x0_geometry(width: usize, height: usize) -> Geometry {
+        let m220 = crate::models::Model::by_name("M220").expect("known model");
+        let profile = m220.overprint_profiles().next().expect("a profile");
+        let odd = OverprintProfile {
+            bleed: Bleed {
+                left: 190,
+                ..profile.bleed
+            },
+            ..*profile
+        };
+        Geometry::new(&odd, 203, 72, width, height, VerticalPolicy::Clip).expect("a canvas")
+    }
+
+    /// An overprint page of `color_space` whose every line is `value`.
+    fn overprint_page(color_space: c_uint, value: u8) -> MonoBitmap {
+        let header = header(352, 272, color_space);
+        let geometry = odd_x0_geometry(352, 272);
+        assert_eq!((geometry.pad_left, geometry.out_width), (1, 336));
+        let mut page = Page::overprint(&header, &geometry).expect("a canvas");
+        for _ in 0..272 {
+            page.push_line(&[value; 352]).expect("fits");
+        }
+        rasterize(page)
+    }
+
+    #[test]
+    fn overprint_padding_is_white_in_every_encoding() {
+        // All ink in K, all black in SW: only the padding column is white.
+        for (color_space, black) in [(PM_CSPACE_K, 255), (PM_CSPACE_SW, 0), (PM_CSPACE_W, 0)] {
+            let bitmap = overprint_page(color_space, black);
+            assert_eq!((bitmap.width_px(), bitmap.height()), (336, 240));
+            for y in [0, 239] {
+                assert!(!bitmap.pixel(0, y), "color space {color_space}");
+                assert!(
+                    (1..336).all(|x| bitmap.pixel(x, y)),
+                    "color space {color_space}"
+                );
+            }
+        }
+        // A blank K page stays blank: its padding is no ink, not ink.
+        let blank = overprint_page(PM_CSPACE_K, 0);
+        assert!(blank.data().iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn overprint_columns_are_mapped() {
+        let geometry = odd_x0_geometry(352, 272);
+        let mut page = Page::overprint(&header(352, 272, PM_CSPACE_SW), &geometry).expect("valid");
+        for y in 0..272 {
+            let mut line = [255; 352];
+            // The label's first column, the last kept one, and one past it.
+            for x in [15, 334, 335] {
+                line[x] = 0;
+            }
+            if y == 16 {
+                line[0] = 0;
+            }
+            page.push_line(&line).expect("fits");
+        }
+        assert_eq!(page.data.len(), 336 * 240);
+        let bitmap = rasterize(page);
+        // Output column o is canvas column o - 1; canvas column 335 is
+        // dropped.
+        assert!(bitmap.pixel(16, 0) && bitmap.pixel(335, 0));
+        assert!(bitmap.pixel(1, 0) && !bitmap.pixel(1, 1));
+        assert!(!bitmap.pixel(0, 0));
+        let black = (0..336).filter(|&x| bitmap.pixel(x, 100)).count();
+        assert_eq!(black, 2);
+    }
+
+    #[test]
+    fn overprint_layouts() {
+        let geometry = odd_x0_geometry(352, 272);
+        let layout = Layout::overprint(&geometry);
+        assert_eq!(
+            layout,
+            Layout {
+                turn: false,
+                columns: 0..335,
+                rows: 16..256,
+                pad_left: 1,
+                pad_right: 0,
+            }
+        );
+        assert_eq!((layout.across(), layout.along()), (336, 240));
+        // Narrow rasters are padded on the right.
+        let narrow = Layout::overprint(&odd_x0_geometry(200, 272));
+        assert_eq!(narrow.line_width(), 336);
+        assert_eq!(
+            (narrow.pad_left, narrow.columns, narrow.pad_right),
+            (1, 0..200, 135)
+        );
+        // Ordinary layouts have no padding.
+        let ordinary = Layout::new(320, 240, 576, false);
+        assert_eq!((ordinary.pad_left, ordinary.pad_right), (0, 0));
+        assert_eq!(ordinary.line_width(), 320);
+    }
+
+    #[test]
+    fn overprint_pages_need_the_columns_and_rows_they_keep() {
+        let geometry = odd_x0_geometry(352, 272);
+        for header in [
+            header(300, 272, PM_CSPACE_SW),
+            header(352, 200, PM_CSPACE_SW),
+        ] {
+            assert!(matches!(
+                Page::overprint(&header, &geometry),
+                Err(Error::BadGeometry(_))
+            ));
+        }
+        assert!(matches!(
+            Page::overprint(&header(352, 0, PM_CSPACE_SW), &geometry),
+            Err(Error::NoLength)
+        ));
+        // Memory is the bitmap's, not the canvas's.
+        let page = Page::overprint(&header(352, 272, PM_CSPACE_SW), &geometry).expect("valid");
+        assert!(page.data.capacity() <= 336 * 240);
     }
 
     fn compressible() -> MonoBitmap {
