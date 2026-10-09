@@ -88,6 +88,8 @@ Because the bitmap's right edge is the head's last dot, the existing
 ```text
 y0 = dots_round(bleed_top)                           canvas row 16
 y1 = min(dots_round(bleed_top + stock_length), H)    canvas row 256
+y2 = min(dots_round(bleed_top + stock_length + bleed_bottom), H)
+                                                     canvas row 272
 ```
 
 A page with `y0 >= y1` is printed as an ordinary page. In gap mode the
@@ -98,7 +100,7 @@ the **vertical policy**:
 | Policy | Rows sent | Hardware status |
 | --- | --- | --- |
 | `clip` | `y0 .. y1` (240 rows) | Same length as an ordinary job. Default. |
-| `trailing` | `y0 .. H` | Bottom bleed prints into the gap. Unvalidated (H2). |
+| `trailing` | `y0 .. y2`, i.e. `y0 .. min(H, y1 + bottom bleed)` (256 rows) | Bottom bleed prints into the gap; a page longer than the canvas sends no more. Unvalidated (H2). |
 | `full` | `0 .. H` plus a positioning prelude | Unvalidated (H3); not offered before. |
 
 `full` needs the printer to start about 2 mm before the label. The only
@@ -140,14 +142,28 @@ of this profile (D1). A job uses a profile, on the profile's model, when:
 1. its media name equals the canvas name (ASCII case-insensitive), or
 2. its media size is within **0.5 mm** (CUPS' own `_PWG_EPSILON`) of the
    canvas in both axes and the stock is loaded, or
-3. its raster header's page size (`cupsPageSize`, points, set on every
-   raster path) is within 0.5 mm of the canvas and the stock is loaded.
+3. its raster header's page size is within 0.5 mm of the canvas and the
+   stock is loaded. The page size is `cupsPageSize` (points) if both values
+   are positive, else the integer `PageSize` (points) if both are positive,
+   else `cupsWidth`/`cupsHeight` at `HWResolution` (pixels / dpi * 72).
+   PWG raster carries no `cupsPageSize`: libcups reads it as 0 x 0 and
+   sets only `PageSize` (124 x 96 for 44 x 34 mm, i.e. 43.74 x 33.87 mm,
+   inside the tolerance); URF gives 124.49 x 96.12 and CUPS raster
+   124.72 x 96.38.
 
-If 1 applies but the stock is not loaded, the job **fails** with a clear
-message: there is no correct geometry for other stock. If the header and the
-job media disagree, the header wins and a warning is logged. A rotated
-34 x 44 mm page does not match (logged at debug level). Anything else is an
-ordinary job, exactly as today.
+A known page size that is not the canvas (outside 0.5 mm) makes the job
+**ordinary**, even under rule 1 and before the stock is looked at: the
+raster is what is printed, so naming the canvas with a 40 x 30 mm page and
+other stock loaded is an ordinary job, not an error (a warning is logged
+when the job media named the canvas, or measured it with the stock loaded;
+otherwise a debug note). Otherwise, if 1 applies
+but the stock is not loaded, the job **fails** with a clear message: there
+is no correct geometry for other stock. If the header page is the canvas
+but the job media is another size, the header wins: logged at info level
+when the job media is the ready media (the job named none and inherited it,
+CUPS' driverless path without `media-col`), as a warning when the job named
+another size. A rotated 34 x 44 mm page does not match (logged at debug
+level). Anything else is an ordinary job, exactly as today.
 
 **D4 - No ready-media aliases.** PAPPL validates job media against
 `media-supported`/`media-size-supported` only and holds no job for
@@ -237,7 +253,8 @@ Files: `phomemo-pappl/src/overprint.rs` (new), `phomemo-pappl/src/lib.rs`,
   stock is in the model's catalog, and whose canvas `Model::accepts_media`.
 - Resolution per D3 as a pure function of: model, job media name and size,
   header page size (points), ready media name and size and length. Result:
-  ordinary, profile (with which rule matched and any warning), or error.
+  ordinary, profile (with which rule matched and any notes), or error. A
+  helper derives the page size from the header per D3's fallback order.
 - `Geometry` per section 2 with the integer formulas; row ranges per
   policy; handles canvases narrower/shorter than expected without panics or
   out-of-range indexing.
@@ -259,8 +276,11 @@ Files: `phomemo-pappl/src/raster/{page.rs,mod.rs,options.rs,ffi.rs}`,
   for now) into a by-value `PmJobContext` passed to `pm_job_start` and kept
   in `Job` for all pages; read once per job.
 - `PmOptions` gains the job's media name, width and length, the header's
-  `cupsPageSize`, and the job's `phomemo-overprint-vertical`. Pointers are
-  only into `options`, valid for the callback; no pointer into a stack copy.
+  `cupsPageSize`, `PageSize`, `cupsWidth`/`cupsHeight` and `HWResolution`
+  (D3's page-size fallback, `overprint::page_points`; `RasterHeader`
+  already carries the width and height, not the resolution or page sizes),
+  and the job's `phomemo-overprint-vertical`. Pointers are only into
+  `options`, valid for the callback; no pointer into a stack copy.
 - `PrintOptions::overprint_vertical()`: job value, else printer default,
   else `clip`; unknown values logged and treated as `clip`.
 - `Layout` gains an explicit column mapping (source start, white padding,
@@ -405,7 +425,7 @@ step; the docs describe it.
 | Item | Status | Commit |
 | --- | --- | --- |
 | WP1 Plan | done | `docs: plan overprint label profiles` |
-| WP2 Profile model and geometry | pending | |
+| WP2 Profile model and geometry | done | `pappl: add overprint profiles and their geometry` |
 | WP3 Raster path | pending | |
 | WP3b Printer defaults for vendor options | pending | |
 | WP4 Advertising, Media Setup, names | pending | |

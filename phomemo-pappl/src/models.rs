@@ -14,6 +14,7 @@ use phomemo_protocol::media::{MediaPreset, PaperPool, paper_pool};
 use phomemo_protocol::model::{self, ModelInfo};
 
 use crate::media;
+use crate::overprint::OverprintProfile;
 use crate::pappl::tracking_flag;
 use crate::raster::MAX_ROWS;
 
@@ -74,8 +75,9 @@ impl CustomRange {
     }
 }
 
-/// `hundredths` of a millimetre in millimetres, without trailing zeros.
-fn millimetres(hundredths: c_int) -> String {
+/// `hundredths` of a millimetre in millimetres, without trailing zeros, as
+/// PWG size names spell them.
+pub fn millimetres(hundredths: c_int) -> String {
     let (whole, fraction) = (hundredths / 100, hundredths % 100);
     match fraction {
         0 => whole.to_string(),
@@ -369,6 +371,25 @@ impl Model {
     /// The preset named `size_name`, if the catalog has it for this model.
     pub fn find_media(&self, size_name: &str) -> Option<&'static MediaPreset> {
         self.pool.find(size_name)
+    }
+
+    /// The overprint profiles for this model (`docs/overprint-plan.md`):
+    /// those named for it, if its media is not sideways, the profile's
+    /// stock is in its catalog at the profile's size, and it takes the
+    /// canvas ([`Self::accepts_media`]).
+    pub fn overprint_profiles(&self) -> impl Iterator<Item = &'static OverprintProfile> {
+        let model = self.name();
+        let usable = !self.has_sideways_media();
+        OverprintProfile::all().iter().filter(move |profile| {
+            let canvas = profile.canvas();
+            usable
+                && profile.model.eq_ignore_ascii_case(model)
+                && self.find_media(profile.stock_name).is_some_and(|preset| {
+                    preset.width_hundredths_mm() == profile.stock.width
+                        && preset.length_hundredths_mm() == profile.stock.length
+                })
+                && self.accepts_media(canvas.width, canvas.length)
+        })
     }
 
     /// The catalog's default media size, with its PWG name.

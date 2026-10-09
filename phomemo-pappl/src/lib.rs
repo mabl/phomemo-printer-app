@@ -10,6 +10,8 @@
 //! - `models`: the printer models, and the views of them C holds.
 //! - `defaults`: the capabilities each model reports to PAPPL.
 //! - `media`: what PAPPL's media description means for the printer.
+//! - `overprint`: design canvases larger than the label, and where they
+//!   reach the head.
 //! - `autoadd`: which driver a discovered device gets.
 //! - `raster`: the raster driver, from PAPPL's pages to the printer's
 //!   byte stream.
@@ -32,6 +34,11 @@ mod bt;
 mod defaults;
 mod media;
 mod models;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the raster driver does not use profiles yet")
+)]
+mod overprint;
 mod pappl;
 mod raster;
 mod testpage;
