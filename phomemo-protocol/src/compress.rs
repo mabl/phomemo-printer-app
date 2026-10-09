@@ -147,7 +147,10 @@ mod tests {
         let data = sample(3 * BLOCK_SIZE);
         let compressed = compress_blocks(&data).expect("compressible");
         for (block, input) in blocks(&compressed).into_iter().zip(data.chunks(BLOCK_SIZE)) {
-            assert_eq!(block, lzokay::compress::compress(input).expect("compressible"));
+            assert_eq!(
+                block,
+                lzokay::compress::compress(input).expect("compressible")
+            );
         }
     }
 
