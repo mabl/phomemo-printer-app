@@ -26,19 +26,20 @@ testing. Closing the browser does not stop the server.
 
 ## Downloads and checksums
 
-No versions have been published on
+Download a matching package from
 [GitHub Releases](https://github.com/mabl/phomemo-printer-app/releases)
-yet. Development packages are available as artifacts from successful
+along with `SHA256SUMS`. The tag workflow publishes the bundles and
+combined checksums after its required checks pass. Tags must match
+the application version, such as `v0.1.0`.
+
+Development packages are also available as artifacts from successful
 [Packages workflow](https://github.com/mabl/phomemo-printer-app/actions/workflows/packaging.yml)
 runs. Choose `snap-amd64`, `snap-arm64`, `flatpak-amd64` or `flatpak-arm64`
 for your package format and architecture, then extract the artifact ZIP
 to obtain the package. Artifacts are retained for 14 days and do not
 include the combined release `SHA256SUMS` file.
 
-Once a release is available, download a matching package from GitHub
-Releases along with `SHA256SUMS`. The tag workflow publishes the bundles
-and combined checksums after its required checks pass. Tags must match
-the application version, such as `v0.1.0`. Example filenames are:
+Example release filenames are:
 
 ```text
 phomemo-printer-app_0.1.0_amd64.snap

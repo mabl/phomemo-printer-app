@@ -28,11 +28,11 @@ Choose an installation for your Linux system:
 | NixOS | System service managed by a NixOS module | [NixOS installation](docs/install.md#nixos) |
 | Nix or source build | Foreground server or native systemd service | [Build and install](docs/install.md#nix-or-source-build) |
 
-**No releases have been published yet.** Development packages are available
-as [CI workflow artifacts](https://github.com/mabl/phomemo-printer-app/actions/workflows/packaging.yml).
-Tags matching the application version publish release packages and
-checksums after the required checks pass. See
-[downloads and checksums](docs/packages.md#downloads-and-checksums).
+Download versioned packages and SHA-256 checksums from
+[GitHub Releases](https://github.com/mabl/phomemo-printer-app/releases).
+Development packages are also available as
+[CI workflow artifacts](https://github.com/mabl/phomemo-printer-app/actions/workflows/packaging.yml).
+See [downloads and checksums](docs/packages.md#downloads-and-checksums).
 
 Bluetooth printing from the Snap and Flatpak packages has **not yet been
 hardware-tested**. The [package guide](docs/packages.md) provides setup
