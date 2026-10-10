@@ -127,7 +127,7 @@ overprint layout, shrunk and shifted.
 A CUPS queue offers the 44 x 34 mm size only if it was created after the
 update; an existing queue keeps its old PPD. The server must already run
 the new version; then recreate the queue with the service's port (and
-environment; see the [README](../README.md)):
+environment; see [CUPS registration](configuration.md#cups-registration)):
 
 ```bash
 phomemo-printer-app register-cups --queue phomemo --port 8000 --replace

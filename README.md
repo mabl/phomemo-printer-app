@@ -1,412 +1,139 @@
-# Phomemo Printer Application
+# Phomemo Printer App for Linux
 
-A [PAPPL](https://www.msweet.org/pappl/) printer application for Phomemo
-Bluetooth label printers. It drives the printers over Bluetooth RFCOMM and
-presents each one as an IPP Everywhere printer, so CUPS and other IPP
-clients print to it without a vendor driver; a web interface sets up
-printers and their media.
+Print labels from Linux to a Phomemo Bluetooth printer. Set up your printer
+and label size in a web browser, then print images directly or use CUPS/IPP
+to print from other applications without a vendor driver.
+
+Create your label designs in another application; this app handles printer
+setup and printing, not label design. It uses
+[PAPPL](https://www.msweet.org/pappl/) and Bluetooth Classic SPP over RFCOMM
+to present printers as IPP Everywhere printers.
 
 ## Supported printers
 
-Phomemo's label printers with 12 mm heads (the D30 and its relatives), and
-with 48 mm (M110, M120 and relatives) and 72 mm heads (M200, M220 and
-relatives): [docs/models.md](docs/models.md) lists every model.
-
-**Hardware-tested: M220.** The other model profiles follow the vendor's
-protocol and still need hardware reports.
-
-## Linux packages
-
-GitHub Actions builds **Snap** and experimental **Flatpak** packages for
-AMD64 and ARM64. Tagged releases provide the packages and SHA-256 checksums;
-development builds are available as workflow artifacts.
-
-| Package | How it runs | Web interface |
-| --- | --- | --- |
-| Snap | Persistent system service; CLI administration uses `sudo` | `http://localhost:8000/` |
-| Flatpak (experimental) | User-session server; launcher opens your browser | `http://127.0.0.1:8631/` |
-
-See the [package installation guide](docs/packages.md) for downloads,
-Bluetooth permissions, first setup, CUPS integration and upgrades. The
-packaged Bluetooth printing path still needs hardware validation. The
-existing Nix and source installation paths are described below.
-
-## Requirements
-
-- Linux with BlueZ, and the printer paired with it
-- PAPPL 1.x, 1.4 or later
-- To build: Rust 1.87 or later, cbindgen, a C compiler, GNU make,
-  pkg-config and PAPPL's development files - or Nix, which provides them
-- For `register-cups`: the CUPS client tools (`lpstat`, `lpadmin`)
-
-## Build
-
-With Nix:
-
-```bash
-nix build                # ./result/bin/phomemo-printer-app
-nix develop --command make
-```
-
-Without Nix, with the requirements installed:
-
-```bash
-make                     # ./phomemo-printer-app
-```
+**The M220 is hardware-tested.** All [listed model profiles](docs/models.md)
+are expected to work based on the vendor's commands and shared protocol;
+reports from other printers are welcome. The list covers the D30 family
+(12 mm print heads), M110/M120 families (48 mm), and M200/M220 families
+(72 mm). Select the actual loaded label size, not the print-head width.
 
 ## Install
 
-As a system service, from a source build:
+Choose an installation for your Linux system:
 
-```bash
-make
-sudo make install-systemd
-sudo systemctl daemon-reload
-sudo systemctl enable --now phomemo-printer-app
-```
+| Installation | How it runs | Instructions |
+| --- | --- | --- |
+| Snap (AMD64/ARM64) | Persistent system service | [Snap installation](docs/packages.md#snap-installation) |
+| Flatpak (experimental, AMD64/ARM64) | User-session server; launcher opens your browser | [Flatpak installation](docs/packages.md#flatpak-installation) |
+| NixOS | System service managed by a NixOS module | [NixOS installation](docs/install.md#nixos) |
+| Nix or source build | Foreground server or native systemd service | [Build and install](docs/install.md#nix-or-source-build) |
 
-The install targets copy what `make` built and never build anything, so
-run `make` first, as yourself. They are:
+**No releases have been published yet.** Development packages are available
+as [CI workflow artifacts](https://github.com/mabl/phomemo-printer-app/actions/workflows/packaging.yml).
+Tags matching the application version publish release packages and
+checksums after the required checks pass. See
+[downloads and checksums](docs/packages.md#downloads-and-checksums).
 
-| Target            | Installs                                              |
-| ----------------- | ----------------------------------------------------- |
-| `install`         | the binary, to `$(BINDIR)`                            |
-| `install-unit`    | the systemd unit, to `$(UNITDIR)`, and its root       |
-|                   | drop-in, to `$(DATADIR)/phomemo-printer-app`          |
-| `install-systemd` | both, and `$(ENVFILE)` unless it exists               |
+Bluetooth printing from the Snap and Flatpak packages has **not yet been
+hardware-tested**. The [package guide](docs/packages.md) provides setup
+instructions; installation and printing feedback is welcome.
 
-`PREFIX` (`/usr/local`) sets `BINDIR` (`$(PREFIX)/bin`), `DATADIR`
-(`$(PREFIX)/share`) and `UNITDIR` (`$(PREFIX)/lib/systemd/system`);
-`ENVFILE` is
-`/etc/default/phomemo-printer-app`. `DESTDIR` stages an installation, e.g.
-for a distribution package. To remove the service, disable it and run
-`sudo make uninstall-systemd`, which keeps the configuration file, the
-service's state, and the root drop-in if you installed it in
-`/etc/systemd/system/phomemo-printer-app.service.d/`.
+## Print your first label
 
-The Nix package contains the binary, the unit in `lib/systemd/system`, the
-drop-in in `share/phomemo-printer-app` and the example configuration in
-`share/doc/phomemo-printer-app`. On NixOS, use the module (below).
+1. **Power on the printer and load labels.** Create a label-sized PNG or
+   JPEG in your preferred design application.
+2. **Pair and trust the printer on the Linux host**, using Bluetooth
+   settings or `bluetoothctl` (`scan on`, `pair ADDRESS`, `trust ADDRESS`).
+   Close any vendor app that might hold its Bluetooth connection.
+3. **Start your installed app or service and open its web interface:**
 
-### The service
+   | Installation | Start | Default web interface |
+   | --- | --- | --- |
+   | Snap | Service starts automatically after installation | `http://localhost:8000/` |
+   | Flatpak | `flatpak run io.github.mabl.phomemo-printer-app` | `http://127.0.0.1:8631/` |
+   | NixOS / native systemd | Enabled service starts automatically; native setup uses `sudo systemctl enable --now phomemo-printer-app` | `http://localhost:8000/` |
+   | Nix / source, foreground | [Start the built binary](docs/install.md#run-a-foreground-server) with a fixed port | `http://localhost:8000/` with the guide's command |
 
-The service runs as a dynamic, unprivileged user (`DynamicUser=yes`). It
-keeps its printers, spool and TLS certificate in
-`/var/lib/phomemo-printer-app`, listens for the sub-commands of every
-account at `/run/phomemo-printer-app/phomemo-printer-app.sock`, and logs to
-the journal (`journalctl -u phomemo-printer-app`). Its sandbox lets it
-write nowhere else but its private `/tmp`, `/var/tmp` and `/dev/shm`; the
-unit explains each setting. Like every PAPPL server, it lets any local
-account administer it through the sub-commands, and without an auth
-service through the web interface on localhost.
+   Use the configured port if you changed it. Keep a foreground or Flatpak
+   server running while you print.
+4. **Add the printer if it was not added automatically.** Choose its model
+   and select **Loaded Media** and the appropriate **Tracking** setting on
+   its **Media Setup** page. A server without
+   saved printers automatically adds supported printers it finds at startup.
+5. **Submit the image through the web interface.** Print PDFs through CUPS
+   instead, as described below.
 
-Remote web interface logins through PAM need a root server, because
-`pam_unix` checks other users' passwords only for root. The drop-in
-`root.conf`, installed in `$(DATADIR)/phomemo-printer-app`, switches the
-service to root, keeping the sandbox:
+Use one application queue per physical printer: it accepts only one
+Bluetooth connection at a time. Stop other installations using it.
+[Package-specific CLI commands](docs/packages.md#first-printer-and-cups-setup)
+and [native CLI examples](docs/configuration.md#printer-and-job-commands)
+are available if you prefer the terminal.
 
-```bash
-DATADIR=/usr/local/share    # as installed: $(PREFIX)/share by default
-sudo install -D -m 0644 "$DATADIR/phomemo-printer-app/root.conf" \
-  /etc/systemd/system/phomemo-printer-app.service.d/root.conf
-sudo systemctl daemon-reload
-sudo systemctl restart phomemo-printer-app
-```
+## Print through CUPS
 
-For root the sandbox limits accidents, not a compromised server: root on
-the system bus can still ask systemd for anything. The drop-in mounts a
-tmpfs over `/etc/cups`, which therefore has to exist: without CUPS, systemd
-creates it, empty, and it stays; with a read-only `/etc` the service fails
-to start. On NixOS, the module's `runAsRoot` installs the drop-in, and
-provides `/etc/cups` without CUPS.
+After adding your printer, add its IPP queue to the host's CUPS scheduler
+to print from desktop applications or use `lp`, including for PDFs.
+[Snap and Flatpak CUPS setup](docs/packages.md#first-printer-and-cups-setup)
+has different commands: Snap administration uses `sudo`; Flatpak uses host
+printer settings or host `lpadmin`.
 
-Configure it in `/etc/default/phomemo-printer-app`, then
-`sudo systemctl restart phomemo-printer-app`. Its web interface is at
-`http://localhost:8000/` unless `PHOMEMO_SERVER_PORT` says otherwise.
+For a **native installation**, with the server running and the CUPS client
+tools (`lpstat`, `lpadmin`) installed:
 
-### NixOS
-
-The flake's NixOS module runs the package's unit, with its settings as
-options:
-
-```nix
-{
-  inputs.phomemo-printer-app.url = "github:mabl/phomemo-printer-app";
-
-  outputs =
-    { nixpkgs, phomemo-printer-app, ... }:
-    {
-      nixosConfigurations.HOST = nixpkgs.lib.nixosSystem {
-        modules = [
-          phomemo-printer-app.nixosModules.default
-          { services.phomemo-printer-app.enable = true; }
-        ];
-      };
-    };
-}
-```
-
-It builds the package with the system's nixpkgs, so that it shares the
-system's PAPPL, CUPS and C library, or takes `pkgs.phomemo-printer-app`,
-which the flake's `overlays.default` adds. For the build the flake's own
-lock pins, as `nix build` makes it, set `package` to
-`phomemo-printer-app.packages.${pkgs.stdenv.hostPlatform.system}.default`.
-The module installs the sub-commands, and enables BlueZ
-(`hardware.bluetooth.enable`) unless that is set; without BlueZ the service
-runs but finds no printers. `/etc/default/phomemo-printer-app` is not read.
-The options of `services.phomemo-printer-app`:
-
-| Option              | Default       | Sets                              |
-| ------------------- | ------------- | --------------------------------- |
-| `port`              | `8000`        | `PHOMEMO_SERVER_PORT`             |
-| `listenHostname`    | `"localhost"` | `PHOMEMO_LISTEN_HOSTNAME`         |
-| `authService`       | see below     | `PHOMEMO_AUTH_SERVICE`            |
-| `adminGroup`        | `null`        | `PHOMEMO_ADMIN_GROUP`             |
-| `logLevel`          | `"info"`      | `PHOMEMO_LOG_LEVEL`               |
-| `logFile`           | `"-"`         | `PHOMEMO_LOG_FILE`                |
-| `tlsOnly`           | `false`       | `PHOMEMO_TLS_ONLY`                |
-| `bluetoothChannels` | `[ 1 ]`       | `PHOMEMO_BT_CHANNELS`             |
-| `environment`       | `{ }`         | further variables                 |
-| `openFirewall`      | `false`       | opens `port`, if beyond localhost |
-| `runAsRoot`         | `false`       | installs the root drop-in         |
-
-A port below 1024 gives the service the capability to bind it. `logFile`
-is `-` or `syslog`, both the journal, or a file directly in
-`/var/lib/phomemo-printer-app`. `tlsOnly` advertises only `ipps` and
-`https` URIs to other hosts, still answering plain connections.
-`environment` takes the settings without an option, such as
-`PHOMEMO_SPOOL_DIRECTORY`, but none an option sets. `openFirewall` has no
-effect, and warns, while the server listens on localhost only.
-
-Listening beyond localhost, the web interface asks for logins, which PAM
-service `phomemo-printer-app` checks. `authService` names another one;
-set, it makes the local web interface ask for logins too. The module
-declares the service in `security.pam.services`, with NixOS' defaults or
-adding to another module's definition of it. PAM's `pam_unix` checks
-passwords only for a root server, so logins need `runAsRoot`: the module
-warns without it while the PAM service uses `pam_unix`. A web interface
-for the administrators on the network:
-
-```nix
-services.phomemo-printer-app = {
-  enable = true;
-  listenHostname = "*";
-  openFirewall = true;
-  runAsRoot = true;
-  adminGroup = "wheel";
-};
-```
-
-With CUPS (`services.printing.enable`), add its queue once with
-`register-cups` (see Printing through CUPS), which reads its caller's
-environment, not the module's settings: give it the same port and, where
-set, the listen host name and TLS-only, e.g.
-`sudo PHOMEMO_TLS_ONLY=1 phomemo-printer-app register-cups --port 8000`.
-
-## Configuration
-
-`phomemo-printer-app --help` lists the settings. Each can be set in the
-environment, or as a server option (`server -o NAME=VALUE`, or a
-`NAME=VALUE` line in PAPPL's configuration file, e.g.
-`/etc/phomemo-printer-app.conf`), which takes precedence:
-
-| Variable                  | Option            | Default                                         |
-| ------------------------- | ----------------- | ----------------------------------------------- |
-| `PHOMEMO_SERVER_PORT`     | `server-port`     | `0`: PAPPL takes a free port (below)            |
-| `PHOMEMO_LISTEN_HOSTNAME` | `listen-hostname` | `localhost`                                     |
-| `PHOMEMO_AUTH_SERVICE`    | `auth-service`    | none; `cups` when listening beyond localhost    |
-| `PHOMEMO_ADMIN_GROUP`     | `admin-group`     | none: any user who logs in                      |
-| `PHOMEMO_LOG_FILE`        | `log-file`        | `-`, standard error                             |
-| `PHOMEMO_LOG_LEVEL`       | `log-level`       | `info`                                          |
-| `PHOMEMO_SPOOL_DIRECTORY` | `spool-directory` | a temporary directory                           |
-| `PHOMEMO_STATE_FILE`      | `state-file`      | PAPPL's choice (below)                          |
-| `PHOMEMO_TLS_ONLY`        | `tls-only`        | `0`                                             |
-
-`listen-hostname` takes a host name, an IPv4 address, an IPv6 address in
-brackets, `*` for every address, or a domain socket path. Listening beyond
-localhost enables the remote web interface, which asks for a login through
-PAM. With port 0, PAPPL takes the first free port from 8000, or for a user
-other than root from 8000 + UID % 1000. The state file holds the printers
-and their settings; PAPPL keeps it in `/var/lib/phomemo-printer-app.state`
-for root, and otherwise in `$XDG_CONFIG_HOME` or `~/.config`. An empty value restores the default, so
-an empty server option undoes the environment; an invalid value is reported
-on standard error and ignored.
-
-`PHOMEMO_BT_CHANNELS` lists the RFCOMM channels to try, comma-separated
-(default `1`); a device URI can name one with `?channel=N`.
-
-Package launchers also set `PHOMEMO_RUNTIME_DIRECTORY` for the server and
-CLI: an existing writable directory owned by their user, mode `0700`, with
-an absolute path and no final symlink. The complete `DIRECTORY/NAME.sock`
-path must fit a UNIX socket (107 bytes on Linux). With this setting the
-server must be started explicitly; automatic private-server startup is
-disabled. Leave it unset for native systemd/PAPPL socket discovery.
-
-## Adding a printer
-
-Pair the printer once (`bluetoothctl`, then `scan on`, `pair ADDRESS`,
-`trust ADDRESS`). With the server running, list what it finds, and add a
-queue for the printer with its driver, or `auto` to pick it from the
-printer's name:
-
-```bash
-phomemo-printer-app devices
-phomemo-printer-app add -d m220 -v btspp://27-A6-4F-5D-03-99 -m phomemo_m220
-```
-
-Or use the web interface, at `http://localhost:PORT/`, which also adds
-printers. A server without saved printers adds those it finds when it
-starts. Set the loaded labels in the web interface's Media page, or with
-`-o media=...` per job:
-
-```bash
-phomemo-printer-app submit -d m220 -o media=om_40x30mm_40x30mm label.png
-```
-
-## Printing through CUPS
-
-`register-cups` adds an IPP Everywhere queue in the local CUPS scheduler
-for the server, and `unregister-cups` removes it:
-
-```bash
+```sh
 phomemo-printer-app register-cups --queue phomemo --port 8000
+lp -d phomemo -o media=Custom.40x30mm label.pdf
+# To remove the CUPS queue:
 phomemo-printer-app unregister-cups --queue phomemo
 ```
 
-The queue reaches the server at `PHOMEMO_LISTEN_HOSTNAME` (`localhost`
-when it listens on every address), over `ipps` with `PHOMEMO_TLS_ONLY`.
-These sub-commands read their caller's environment only - not server
-options, nor the service's configuration - so give them the service's
-`PHOMEMO_LISTEN_HOSTNAME` and `PHOMEMO_TLS_ONLY` where it sets them, and
-its fixed port: `--port`, or `PHOMEMO_SERVER_PORT`. `--replace` recreates an
-existing queue. They exit with 0 on success, 2 for invalid arguments, and 1
-on any other failure, including when `lpstat` or `lpadmin` is missing.
+Replace the media size with your loaded labels and the port with your
+server's fixed port. CUPS administration requires the appropriate host
+permissions. `register-cups` reads the caller's environment, not the
+service's configuration; pass matching host/TLS settings if changed. See
+[CUPS configuration](docs/configuration.md#cups-registration).
 
-## Overprint labels
+## Edge-to-edge labels
 
-On the M220 with 40 x 30 mm labels, a design can be laid out on a
-44 x 34 mm page with 2 mm of bleed around the label, so that backgrounds
-reach past its edges; the driver prints it 1:1, anchored to the label, and
-drops the bleed it does not print. A CUPS queue created before overprint
-support must be recreated with `register-cups --replace` to offer the
-size. [docs/overprint.md](docs/overprint.md) describes what prints, how to
-design and print, has a template, and summarizes the hardware validation.
+On the M220 with 40 × 30 mm labels, a 44 × 34 mm design with 2 mm of bleed
+can extend backgrounds beyond the label edges. The driver prints at 1:1
+and drops the unprinted bleed. See the [overprint guide](docs/overprint.md)
+for design instructions, a template and hardware validation. Older CUPS
+queues need `register-cups --replace` to offer the overprint size.
 
-## Troubleshooting
+## Help and configuration
 
-- **The printer is not listed.** Only printers paired with BlueZ are, and
-  only if their name or alias starts with their model (`M110`,
-  `D30_1234`) or is their serial number (`Q198G5949230062`).
-  BlueZ older than 5.51 answers only root, the `lp` group and console
-  users over D-Bus: give the service the group with
-  `SupplementaryGroups=lp` in a drop-in
-  (`sudo systemctl edit phomemo-printer-app`).
-- **"is another queue using the same printer?"** A printer takes one
-  Bluetooth connection at a time, so give each printer one queue. A second
-  queue for the same address waits up to 5 seconds for the first one's
-  connection, stalling its web and IPP requests, and then fails.
-- **Remote logins fail.** They need the root drop-in (see The service).
-  Where `/etc/shadow` is mode 0000, as Fedora and RHEL ship it, PAM's
-  `unix_chkpwd` also needs the capability the drop-in names.
-- **The web interface answers "Bad Request" from the network.** PAPPL
-  takes requests only for `localhost`, an address, any `.local` name, or
-  its own host name: `PHOMEMO_LISTEN_HOSTNAME` when that names a host,
-  otherwise the system's, with `.local` added if it has no domain. So
-  `http://HOST:PORT/` fails for a bare host name; use the address, or
-  `http://HOST.local:PORT/`, which needs mDNS on both ends: Avahi
-  publishing the host (on NixOS, `services.avahi = { enable = true;
-  publish = { enable = true; addresses = true; userServices = true; }; }`,
-  which also lets the server announce its printers), and a client that
-  resolves `.local` names (`services.avahi.nssmdns4 = true`).
-- **A port below 1024** needs `AmbientCapabilities=CAP_NET_BIND_SERVICE`
-  and `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` in a drop-in.
-- **`shutdown` returns before the server exits**, which happens when PAPPL's
-  main loop next wakes, up to 30 seconds later. `SIGTERM` (`systemctl
-  stop`) stops it at once.
+- **Printer missing?** It must be paired with BlueZ and have a recognized
+  model name/alias, serial number or a name containing the word `Phomemo`. See
+  [troubleshooting](docs/configuration.md#troubleshooting).
+- **Continuous roll?** Direct image printing needs a label size with a
+  definite length; use CUPS to render pages for continuous media. See
+  [known limitations](docs/configuration.md#known-limitations).
+- **Change ports, logging, Bluetooth channels or remote access:** see
+  [configuration](docs/configuration.md),
+  [native service setup](docs/install.md#the-native-systemd-service) or
+  [NixOS options](docs/install.md#nixos-options). For package configuration,
+  use the [package guide](docs/packages.md).
 
-## Known limitations
-
-- Images (PNG, JPEG) submitted directly cannot be printed on a continuous
-  roll (a media size 0 mm long): PAPPL rasterizes an image onto the media
-  size and refuses a page without length ("Invalid media size"). Choose a
-  label size for such jobs, or print through CUPS, which renders pages of a
-  definite length.
-- Raw jobs (`application/vnd.phomemo-raw`) end as soon as they are sent:
-  only raster jobs wait for the printer to report each page printed.
+Please [report successes or problems](https://github.com/mabl/phomemo-printer-app/issues/new)
+with your printer model, Linux distribution, installation/package version,
+loaded label dimensions and print results. Include firmware if known.
 
 ## Upgrading
 
-Earlier versions installed the unit as
-`/etc/systemd/system/phomemo-printer-app.service`, which overrides the one
-`install-systemd` now installs (`make install-systemd` warns about it), and
-kept its state, as root, in `/var/lib/phomemo-printer-app.state`. Upgrade
-in this order, so the old unit cannot save over the state while it moves;
-systemd then hands the directory to the service's dynamic user:
-
-```bash
-make
-sudo systemctl disable --now phomemo-printer-app
-sudo rm /etc/systemd/system/phomemo-printer-app.service
-sudo make install-systemd
-sudo install -d -m 0700 /var/lib/phomemo-printer-app
-sudo mv /var/lib/phomemo-printer-app.state /var/lib/phomemo-printer-app/
-sudo systemctl daemon-reload
-sudo systemctl enable --now phomemo-printer-app
-```
-
-The configuration file, `/etc/default/phomemo-printer-app`, is kept. With
-remote logins configured in it, install the root drop-in as well.
-
-Print darkness now follows PAPPL's semantics: the printer's darkness
-(`printer-darkness-configured`, 0-100 %, set in the web interface) plus a
-per-job offset (`print-darkness`, -100 to 100, default 0), mapped onto the
-printer's 15 density levels. Earlier builds used `print-darkness` as the
-density itself and saved a default of 8, which now reads as an offset of
-+8 %, so printers created by an earlier build print darker than intended.
-Reset each one once: choose the darkness in its web interface, and clear
-the saved offset, which the web interface does not show:
-
-```bash
-phomemo-printer-app modify -d PRINTER -o print-darkness-default=0
-```
-
-Print speed now defaults to the printer's own setting ("Auto") instead of
-level 3.
+See the [upgrade and migration guide](docs/upgrading.md) for native service
+state migration, darkness defaults and overprint queues, or
+[package upgrades](docs/packages.md#upgrade-stop-and-remove) for Snap/Flatpak.
 
 ## Development
 
-```bash
+```sh
 nix develop
 make check     # fmt-check, clippy, tests, C with -Werror, and the build
 ```
 
-Other targets: `make fmt`, `make lint` (clippy), `make c-lint`,
-`make test`, `make clean`, and `make ci`, which is `make check` but the
-build. CI runs `nix flake check`, which checks the same hermetically - the
-package build runs the tests, in release mode - plus the Nix files'
-formatting (`nix fmt`), the dev shell, and the NixOS module: its options
-evaluated (`.#checks.x86_64-linux.module-eval`), and its service in VMs
-(`nix build -L .#checks.x86_64-linux.nixos`, which needs KVM).
-
-The package build also runs real-server runtime tests, including native
-service socket discovery, persistence and packaged socket isolation;
-`nix build -L .#checks.x86_64-linux.runtime` selects this check directly.
-[docs/packages.md](docs/packages.md#building-and-releasing) describes the
-Snap/Flatpak builds and release checks.
-
-A weekly workflow proposes the newest nixpkgs in a pull request.
-
-The driver's media catalog, `phomemo-protocol/data/media_catalog.json`, is
-generated from the media definitions in the Print Master Android app:
-`localPaper.json`, `DefaultPrinter.json` and `DefaultTypeGroup.json` from
-the APK's `assets/` directory. Regenerate it after updating them:
-
-```bash
-python3 scripts/generate_media_catalog.py --reference-dir path/to/assets
-```
-
-`--out` writes elsewhere; the catalog records each input's file name and
-SHA-256, not its local path.
-
-Measured M220 paper-positioning behavior and leading-edge bleed experiments
-are recorded in [docs/m220-positioning.md](docs/m220-positioning.md).
+See [development checks and media catalog maintenance](docs/install.md#development-and-maintenance)
+for individual targets and Nix runtime/module checks, and
+[package build and release checks](docs/packages.md#building-and-releasing).
+Measured M220 positioning and leading-edge bleed experiments are recorded
+in [docs/m220-positioning.md](docs/m220-positioning.md).

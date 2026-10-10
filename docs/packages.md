@@ -1,9 +1,14 @@
 # Snap and experimental Flatpak packages
 
 Both packages build the same Phomemo driver from source and bundle PAPPL
-1.4.12. **The packaged Bluetooth printing path has not yet been validated
-on hardware.** Successful package tests demonstrate startup, local IPP,
-CLI access and saved configuration, not physical printing.
+1.4.12. CI builds and tests them, including startup, local IPP, CLI access
+and saved configuration. **Actual Bluetooth printing from either package
+has not yet been validated on hardware**, on Ubuntu or any other
+distribution. The maintainer's hardware testing covers only the M220;
+it does not establish that the packaged printing path works. The
+[listed models](models.md) have driver profiles and are expected to work
+based on the vendor's commands and shared protocol. All Bluetooth
+printing support uses Bluetooth Classic SPP over RFCOMM.
 
 | | Snap | Flatpak |
 | --- | --- | --- |
@@ -21,10 +26,19 @@ testing. Closing the browser does not stop the server.
 
 ## Downloads and checksums
 
-Download a matching package from
-[GitHub Releases](https://github.com/mabl/phomemo-printer-app/releases),
-along with `SHA256SUMS`. Tags must match the application version, such as
-`v0.1.0`. Filenames are:
+No versions have been published on
+[GitHub Releases](https://github.com/mabl/phomemo-printer-app/releases)
+yet. Development packages are available as artifacts from successful
+[Packages workflow](https://github.com/mabl/phomemo-printer-app/actions/workflows/packaging.yml)
+runs. Choose `snap-amd64`, `snap-arm64`, `flatpak-amd64` or `flatpak-arm64`
+for your package format and architecture, then extract the artifact ZIP
+to obtain the package. Artifacts are retained for 14 days and do not
+include the combined release `SHA256SUMS` file.
+
+Once a release is available, download a matching package from GitHub
+Releases along with `SHA256SUMS`. The tag workflow publishes the bundles
+and combined checksums after its required checks pass. Tags must match
+the application version, such as `v0.1.0`. Example filenames are:
 
 ```text
 phomemo-printer-app_0.1.0_amd64.snap
@@ -33,18 +47,16 @@ phomemo-printer-app_0.1.0_amd64.flatpak
 phomemo-printer-app_0.1.0_arm64.flatpak
 ```
 
-Use `amd64` for an x86-64 PC and `arm64` for a 64-bit ARM system. In the
-download directory, verify the package you downloaded:
+Use `amd64` for an x86-64 PC and `arm64` for a 64-bit ARM system. Replace
+the example version and architecture in the installation commands below
+with those of your downloaded package. For a release download, verify
+the package in the download directory:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-All available package lines must report `OK`. An absent release means no
-version has been published yet. For testing, the
-[Packages workflow](https://github.com/mabl/phomemo-printer-app/actions/workflows/packaging.yml)
-provides artifacts after its package checks pass. Extract the artifact ZIP
-to obtain the package; tagged releases provide the combined checksums.
+All available package lines must report `OK`.
 
 ## Snap installation
 
@@ -155,12 +167,12 @@ launcher behavior, offline dependencies and local build instructions, see
    app that might hold its Bluetooth connection.
 3. Start the selected package and open its web interface.
 4. Add the printer if it was not added automatically; choose its model
-   and the actual loaded label size.
+   and select **Loaded Media** and the appropriate **Tracking** setting on
+   its **Media Setup** page.
 5. Submit a label-sized PNG through the web interface.
 
-The [model list](models.md) distinguishes hardware-tested M220 from other
-model profiles. Report your package/version, distribution, model, firmware,
-loaded labels and actual print results when testing another model.
+The [model list](models.md) describes the driver profiles and print-head
+widths; choose the loaded label size rather than the head width.
 
 For Snap, after creating a printer:
 
@@ -275,11 +287,20 @@ outside the checkout with `flatpak/build-bundle.sh`.
 To publish, first update the application version in
 `phomemo-pappl/Cargo.toml` and the matching Cargo lock entry, validate the
 packages, then push a matching `vVERSION` tag. The tag workflow also runs
-the native Nix checks. It publishes the four tested bundles and
-`SHA256SUMS` only after every required job passes. Publication starts as a
-draft; retrying verifies remote assets and never overwrites a mismatched
-published release. No Snap Store or Flathub application publication is
-performed.
+the native Nix checks. It publishes the four CI-tested bundles and
+`SHA256SUMS` only after every required job passes. The helper creates a
+draft, uploads and verifies its assets, then automatically publishes it;
+no manual draft-publication step is required. Retrying verifies remote
+assets and never overwrites a mismatched published release. No Snap Store
+or Flathub application publication is performed.
 
-Hardware printing, real desktop background behavior and package upgrades
-must be validated separately before recommending the packages broadly.
+## Feedback
+
+Please share successes or problems through
+[GitHub issues](https://github.com/mabl/phomemo-printer-app/issues/new),
+whether you use an M220 or another listed model. Include your printer
+model, distribution and version, architecture, package format (Snap or
+Flatpak), application/package version, firmware if known, loaded label
+dimensions and actual print results. Reports about installation, desktop
+launch/background behavior and upgrades are also welcome; describe the
+steps you tried and what happened.
