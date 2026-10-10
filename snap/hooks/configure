@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+# shellcheck source=snap/local/config.sh
+. "$SNAP/usr/libexec/phomemo/config.sh"
+phomemo_read_config
+snapctl set "port=$PHOMEMO_SERVER_PORT" "listen-hostname=$PHOMEMO_LISTEN_HOSTNAME"
+# Explicit `snap restart phomemo-printer-app.daemon` applies the settings. Do not
+# restart here: configure also runs on install and must respect disabled services.

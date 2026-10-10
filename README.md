@@ -12,6 +12,25 @@ Phomemo's label printers with 12 mm heads (the D30 and its relatives), and
 with 48 mm (M110, M120 and relatives) and 72 mm heads (M200, M220 and
 relatives): [docs/models.md](docs/models.md) lists every model.
 
+**Hardware-tested: M220.** The other model profiles follow the vendor's
+protocol and still need hardware reports.
+
+## Linux packages
+
+GitHub Actions builds **Snap** and experimental **Flatpak** packages for
+AMD64 and ARM64. Tagged releases provide the packages and SHA-256 checksums;
+development builds are available as workflow artifacts.
+
+| Package | How it runs | Web interface |
+| --- | --- | --- |
+| Snap | Persistent system service; CLI administration uses `sudo` | `http://localhost:8000/` |
+| Flatpak (experimental) | User-session server; launcher opens your browser | `http://127.0.0.1:8631/` |
+
+See the [package installation guide](docs/packages.md) for downloads,
+Bluetooth permissions, first setup, CUPS integration and upgrades. The
+packaged Bluetooth printing path still needs hardware validation. The
+existing Nix and source installation paths are described below.
+
 ## Requirements
 
 - Linux with BlueZ, and the printer paired with it
@@ -216,6 +235,13 @@ on standard error and ignored.
 `PHOMEMO_BT_CHANNELS` lists the RFCOMM channels to try, comma-separated
 (default `1`); a device URI can name one with `?channel=N`.
 
+Package launchers also set `PHOMEMO_RUNTIME_DIRECTORY` for the server and
+CLI: an existing writable directory owned by their user, mode `0700`, with
+an absolute path and no final symlink. The complete `DIRECTORY/NAME.sock`
+path must fit a UNIX socket (107 bytes on Linux). With this setting the
+server must be started explicitly; automatic private-server startup is
+disabled. Leave it unset for native systemd/PAPPL socket discovery.
+
 ## Adding a printer
 
 Pair the printer once (`bluetoothctl`, then `scan on`, `pair ADDRESS`,
@@ -361,6 +387,12 @@ package build runs the tests, in release mode - plus the Nix files'
 formatting (`nix fmt`), the dev shell, and the NixOS module: its options
 evaluated (`.#checks.x86_64-linux.module-eval`), and its service in VMs
 (`nix build -L .#checks.x86_64-linux.nixos`, which needs KVM).
+
+The package build also runs real-server runtime tests, including native
+service socket discovery, persistence and packaged socket isolation;
+`nix build -L .#checks.x86_64-linux.runtime` selects this check directly.
+[docs/packages.md](docs/packages.md#building-and-releasing) describes the
+Snap/Flatpak builds and release checks.
 
 A weekly workflow proposes the newest nixpkgs in a pull request.
 

@@ -47,8 +47,12 @@
             });
         in
         {
-          # Building the package also runs the Rust tests.
+          # Building the package also runs the Rust and real-server tests.
           inherit package;
+
+          # Share the checked package derivation, avoiding a second Rust build.
+          # This includes native socket discovery and the scratch service variant.
+          runtime = package;
 
           # The Nix files with `nix fmt`'s formatter, the Rust ones with rustfmt.
           formatting =

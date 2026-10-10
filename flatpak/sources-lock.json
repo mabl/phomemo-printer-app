@@ -1,0 +1,16 @@
+{
+  "generator_revision": "74697c75b630d7330e77250fc13cb5ea688d9479",
+  "generator_sha256": "0a2db6be87d75910facef28ab46d4d6460802e8419ab850d0caa6a364d26b380",
+  "inputs_and_outputs_sha256": {
+    "Cargo.lock": "98772121ef5e5d70e509538e80ee32fcf53c7225f3db528269309b8be252fa52",
+    "flatpak/cargo-sources.json": "0e0161676902367612074ecc1f06b364d7c1f75a262d8137b18c11cfc1cb12ab",
+    "flatpak/cbindgen-Cargo.lock": "93d4791548dcd876012eb118a98d1e42e024fff69b0fcf5392c2ce4a9397a1d0",
+    "flatpak/cbindgen-sources.json": "b4f07540fdeb90ce6ca1264d6ea03859b17b78e65ee4e54ec3182bfafcca5780"
+  },
+  "cbindgen_source": {
+    "type": "archive",
+    "archive-type": "tar-gzip",
+    "url": "https://static.crates.io/crates/cbindgen/cbindgen-0.29.2.crate",
+    "sha256": "befbfd072a8e81c02f8c507aefce431fe5e7d051f83d48a23ffc9b9fe5a11799"
+  }
+}

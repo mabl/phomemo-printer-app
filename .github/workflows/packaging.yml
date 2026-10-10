@@ -1,0 +1,203 @@
+name: Packages
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'packaging/**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Do not interrupt a tagged release while uploading its assets.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate application version and release tag
+        id: version
+        run: python3 "$GITHUB_WORKSPACE/scripts/package_workflow_metadata.py" version
+      - name: Adversarial workflow helper unit tests (mock GitHub only)
+        run: |
+          python3 "$GITHUB_WORKSPACE/scripts/package_workflow_tests.py"
+          python3 "$GITHUB_WORKSPACE/scripts/package_workflow_runtime_tests.py"
+
+  snap:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build native Snap
+        id: build
+        uses: snapcore/action-build@v1
+        with:
+          path: ${{ github.workspace }}
+          snapcraft-args: --platform=${{ matrix.arch }}
+      - name: Name and install the local Snap
+        env:
+          BUILT_SNAP: ${{ steps.build.outputs.snap }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bluez avahi-daemon cups cups-client
+          sudo systemctl start bluetooth avahi-daemon cups
+          mkdir -p "$RUNNER_TEMP/packages"
+          cp "$BUILT_SNAP" "$RUNNER_TEMP/packages/phomemo-printer-app_${VERSION}_${ARCH}.snap"
+          sudo snap install --dangerous "$RUNNER_TEMP/packages/phomemo-printer-app_${VERSION}_${ARCH}.snap"
+          sudo snap stop --disable phomemo-printer-app
+          sudo snap connect phomemo-printer-app:network
+          sudo snap connect phomemo-printer-app:network-bind
+          sudo snap connect phomemo-printer-app:bluez :bluez
+          sudo snap connect phomemo-printer-app:avahi-control
+          sudo snap connect phomemo-printer-app:cups-control
+      - name: Installed Snap runtime regression tests (root, private state)
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          sudo python3 "$GITHUB_WORKSPACE/scripts/package_workflow_runtime.py" \
+            snap --version "$VERSION" --suite "$GITHUB_WORKSPACE/scripts/test_packaged_runtime.py"
+      - name: Upload tested Snap
+        uses: actions/upload-artifact@v7
+        with:
+          name: snap-${{ matrix.arch }}
+          path: ${{ runner.temp }}/packages/*.snap
+          if-no-files-found: error
+          retention-days: 14
+
+  flatpak:
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            flatpak-arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            flatpak-arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Flatpak build and runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder dbus-x11 xvfb python3-yaml gcc pkg-config libglib2.0-dev
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install --noninteractive --assumeyes flathub \
+            org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+          flatpak list --runtime --columns=ref,active
+      - name: Verify checked-in locked offline Cargo sources
+        run: python3 "$GITHUB_WORKSPACE/flatpak/update-sources.py" --check
+      - name: Prepare bundle directory
+        run: mkdir -p "$RUNNER_TEMP/packages"
+      - name: Build native Flatpak (network disabled inside build sandbox)
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: ${{ github.workspace }}/flatpak/io.github.mabl.phomemo-printer-app.json
+          arch: ${{ matrix.flatpak-arch }}
+          bundle: ${{ runner.temp }}/packages/phomemo-printer-app_${{ needs.metadata.outputs.version }}_${{ matrix.arch }}.flatpak
+          build-dir: ${{ runner.temp }}/flatpak-build
+          repo-dir: ${{ runner.temp }}/flatpak-repo
+          state-dir: ${{ runner.temp }}/flatpak-state
+          branch: experimental
+          run-tests: true
+          # Upload only after installed-artifact tests pass.
+          upload-artifact: false
+          cache: false
+      - name: Install the bundle
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive --assumeyes "$RUNNER_TEMP/packages/phomemo-printer-app_${VERSION}_${ARCH}.flatpak"
+      - name: Installed Flatpak runtime regression tests and sandbox launch
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          sudo install -d -m0700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
+          XDG_RUNTIME_DIR="/run/user/$(id -u)" dbus-run-session -- python3 "$GITHUB_WORKSPACE/scripts/package_workflow_runtime.py" \
+            flatpak --version "$VERSION" --suite "$GITHUB_WORKSPACE/scripts/test_packaged_runtime.py"
+      - name: Upload tested Flatpak
+        uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: ${{ runner.temp }}/packages/*.flatpak
+          if-no-files-found: error
+          retention-days: 14
+
+  # Existing CI has no tag trigger. Repeat its checks on the tagged source so
+  # a direct tag push cannot publish without passing the same Nix checks.
+  tag-checks:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31
+      - name: Nix CI on the tagged commit
+        run: nix flake check --all-systems "$GITHUB_WORKSPACE"
+
+  release:
+    if: >-
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') &&
+      github.repository == 'mabl/phomemo-printer-app'
+    needs: [metadata, snap, flatpak, tag-checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: '*-*64'
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-assets
+      - name: Verify complete release assets and write SHA-256 checksums
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          python3 "$GITHUB_WORKSPACE/scripts/package_workflow_metadata.py" checksums \
+            --directory "$RUNNER_TEMP/release-assets" --version "$VERSION"
+      - name: Publish GitHub bundles after all checks pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 "$GITHUB_WORKSPACE/scripts/package_workflow_metadata.py" publish \
+            --directory "$RUNNER_TEMP/release-assets" --tag "$RELEASE_TAG"

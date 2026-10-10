@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.mabl.phomemo-printer-app</id>
+  <name>Phomemo Printer App</name>
+  <summary>Print labels with Phomemo Bluetooth printers</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <developer id="io.github.mabl"><name>Phomemo Printer App contributors</name></developer>
+  <description>
+    <p>An experimental session-scoped printer server with a browser-based interface.
+    Launch the application to start printing, and use its Stop Server desktop action
+    when finished. Closing the browser does not stop the server.</p>
+    <p>Supports direct job submission and IPP printing. Bluetooth pairing and optional
+    CUPS queue setup are performed on the host. Distributed through GitHub releases.</p>
+  </description>
+  <launchable type="desktop-id">io.github.mabl.phomemo-printer-app.desktop</launchable>
+  <url type="homepage">https://github.com/mabl/phomemo-printer-app</url>
+  <url type="bugtracker">https://github.com/mabl/phomemo-printer-app/issues</url>
+  <provides><binary>phomemo-printer-app</binary></provides>
+  <content_rating type="oars-1.1"/>
+</component>

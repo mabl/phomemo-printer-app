@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+
+# command-chain passes the executable followed by its arguments. Both apps exec
+# the exact same basename; PAPPL uses it when constructing the CLI socket name.
+if [ "$#" -eq 2 ]; then
+    case "$2" in
+        --help|--version) exec "$@" ;;
+    esac
+fi
+
+if [ "$(id -u)" != 0 ]; then
+    printf '%s\n' 'The snap daemon uses a root-owned private runtime directory (0700).' \
+        'Run daemon-management commands with sudo phomemo-printer-app.' >&2
+    exit 1
+fi
+
+: "${SNAP:?snap runtime must set SNAP}"
+: "${SNAP_COMMON:?snap runtime must set SNAP_COMMON}"
+case "$SNAP_COMMON" in
+    /*) ;;
+    *) printf '%s\n' 'SNAP_COMMON must be absolute.' >&2; exit 1 ;;
+esac
+
+# shellcheck source=snap/local/config.sh
+. "$SNAP/usr/libexec/phomemo/config.sh"
+phomemo_read_config
+
+umask 077
+for directory in "$SNAP_COMMON/runtime" "$SNAP_COMMON/state" \
+                 "$SNAP_COMMON/spool" "$SNAP_COMMON/ssl"; do
+    if [ -L "$directory" ]; then
+        printf 'Refusing symlink directory: %s\n' "$directory" >&2
+        exit 1
+    fi
+    # SNAP_COMMON already exists; only the deepest directory is ours to create.
+    # shellcheck disable=SC2174
+    mkdir -p -m 0700 "$directory"
+    # snapd may pre-create the layout's source directory with mode 0755.
+    if [ "$directory" = "$SNAP_COMMON/ssl" ] && [ "$(stat -c '%u' "$directory")" = 0 ]; then
+        chmod 0700 "$directory"
+    fi
+    if [ "$(stat -c '%u:%a' "$directory")" != '0:700' ]; then
+        printf 'Directory must be root-owned with mode 0700: %s\n' "$directory" >&2
+        exit 1
+    fi
+done
+
+# Keep the real SNAP_COMMON: PAPPL also uses it for its .conf and ssl/ files.
+export PHOMEMO_RUNTIME_DIRECTORY="$SNAP_COMMON/runtime"
+export PHOMEMO_STATE_FILE="$SNAP_COMMON/state/phomemo-printer-app.state"
+export PHOMEMO_SPOOL_DIRECTORY="$SNAP_COMMON/spool"
+export PHOMEMO_LOG_FILE=-
+exec "$@"

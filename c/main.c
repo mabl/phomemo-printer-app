@@ -15,6 +15,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/file.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include "phomemo.h"
@@ -28,21 +32,10 @@ _Static_assert(sizeof(PHOMEMO_VERSION) > 1, "PHOMEMO_VERSION is empty");
 // to declare.
 extern char **environ;
 
-// The service's runtime directory, RuntimeDirectory= in its unit, where it
-// listens for the sub-commands at NAME.sock.
-//
-// A sub-command looks for a server at its own user's socket, then at a root
-// server's: papplMainloop's /run/NAME.sock, or SNAP_COMMON/NAME.sock while
-// SNAP_COMMON is set (mainloop-support.c). Set for a server, that variable
-// would also move its configuration files and default state file. So main
-// clears it, and sets it for the sub-commands while the service runs; a
-// root service sets it only once papplMainloop has read its configuration
-// (system_cb), and any other service listens there itself. A build may
-// move it, e.g. to test the service as a user unit.
-//
-// The service is the server systemd gives this directory: RUNTIME_DIRECTORY,
-// a colon-separated list, names it. Merely being able to write it is not
-// enough: a root server started by hand would take the socket over.
+// Native systemd service socket, accessible to clients of every account.
+// Only systemd's RUNTIME_DIRECTORY authorizes a server to use this location.
+// Packaged launchers instead supply PHOMEMO_RUNTIME_DIRECTORY to both server
+// and clients, independently of PAPPL's configuration/state directories.
 #ifndef SERVICE_DIRECTORY
 #  define SERVICE_DIRECTORY "/run/phomemo-printer-app"
 #endif
@@ -53,7 +46,122 @@ typedef struct {
     pappl_pr_driver_t *drivers;      // one driver per model
     int                num_drivers;
     bool               server;       // whether the sub-command is "server"
+    int                runtime_fd;   // private directory, locked while serving
 } app_t;
+
+static char runtime_socket[sizeof(((struct sockaddr_un *)NULL)->sun_path)];
+static bool service_server;
+static bool server_command;
+
+// PAPPL 1.4's mainloop-support.c has no public socket-path callback. Its
+// exported path helper is shared by the server and *all* CLI sub-commands.
+// Interpose just that helper, retaining its Linux native path conventions.
+// This requires shared PAPPL 1.x with interposable symbols; run the real-server
+// runtime test against each packaged build to verify this integration.
+char *_papplMainloopGetServerPath(const char *base_name, uid_t uid,
+                                char *buffer, size_t bufsize);
+
+char *_papplMainloopGetServerPath(const char *base_name, uid_t uid,
+                                char *buffer, size_t bufsize) {
+    const char *snap_common = getenv("SNAP_COMMON");
+
+    if (runtime_socket[0])
+        snprintf(buffer, bufsize, "%s", runtime_socket);
+    else if (service_server || (!server_command && !uid && !snap_common &&
+                               !access(SERVICE_DIRECTORY, X_OK)))
+        snprintf(buffer, bufsize, SERVICE_DIRECTORY "/%s.sock", base_name);
+    else if (uid)
+        snprintf(buffer, bufsize, "%s/%s%lu.sock", papplGetTempDir(), base_name,
+                 (unsigned long)uid);
+    else
+        snprintf(buffer, bufsize, "%s/%s.sock", snap_common ? snap_common : "/run",
+                 base_name);
+
+    return buffer;
+}
+
+// The launcher creates the directory. Fail closed on a bad setting rather
+// than quietly connecting to a different server or starting a private one.
+static bool runtime_init(app_t *app) {
+    const char *directory = getenv("PHOMEMO_RUNTIME_DIRECTORY");
+    if (!directory)
+        return true;
+
+    size_t length = strlen(directory);
+    while (length > 1 && directory[length - 1] == '/')
+        length--;
+    int count = snprintf(runtime_socket, sizeof(runtime_socket), "%.*s/%s.sock",
+                         (int)(length < sizeof(runtime_socket) ? length : sizeof(runtime_socket)),
+                         directory, app->name);
+    if (directory[0] != '/' || count < 0 || (size_t)count >= sizeof(runtime_socket)) {
+        fprintf(stderr, "%s: PHOMEMO_RUNTIME_DIRECTORY must be a non-empty absolute "
+                "path short enough for a UNIX socket.\n", app->name);
+        return false;
+    }
+
+    char path[sizeof(runtime_socket)];
+    snprintf(path, sizeof(path), "%.*s", (int)length, directory);
+    app->runtime_fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    struct stat st;
+    if (app->runtime_fd < 0 || fstat(app->runtime_fd, &st) ||
+        !S_ISDIR(st.st_mode) || st.st_uid != geteuid() || (st.st_mode & 0777) != 0700 ||
+        access(path, W_OK | X_OK)) {
+        fprintf(stderr, "%s: PHOMEMO_RUNTIME_DIRECTORY must be an existing writable "
+                "private directory owned by the current user (mode 0700), not a symlink.\n",
+                app->name);
+        return false;
+    }
+    return true;
+}
+
+// PAPPL/libcups can unlink an existing domain socket before binding it.
+// Serialize servers before any listener or state work, and reject a live
+// socket belonging to an older/uncooperative server as well as non-sockets.
+static bool runtime_claim(const app_t *app) {
+    if (flock(app->runtime_fd, LOCK_EX | LOCK_NB)) {
+        fprintf(stderr, "%s: Runtime directory already has a server, or cannot be locked: %s.\n",
+                app->name, strerror(errno));
+        return false;
+    }
+
+    struct stat st;
+    if (lstat(runtime_socket, &st)) {
+        if (errno == ENOENT)
+            return true;
+    } else if (S_ISSOCK(st.st_mode) && st.st_uid == geteuid()) {
+        int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+        if (fd >= 0) {
+            struct sockaddr_un address = { .sun_family = AF_UNIX };
+            memcpy(address.sun_path, runtime_socket, strlen(runtime_socket) + 1);
+            int result = connect(fd, (struct sockaddr *)&address, sizeof(address));
+            int error = errno;
+            close(fd);
+            if (result < 0 && (error == ECONNREFUSED || error == ENOENT))
+                return true;  // stale socket; PAPPL replaces it
+        }
+    }
+
+    fprintf(stderr, "%s: Refusing to replace active or unsafe runtime socket %s.\n",
+            app->name, runtime_socket);
+    return false;
+}
+
+// Recognize aliases too: adding the CLI listener twice can unlink the first
+// binding. The containing directory's inode identifies equivalent paths.
+static bool same_socket_path(const char *a, const char *b) {
+    const char *aslash = strrchr(a, '/');
+    const char *bslash = strrchr(b, '/');
+    if (!aslash || !bslash || strcmp(aslash, bslash))
+        return false;
+    char adir[1024], bdir[1024];
+    if ((size_t)(aslash - a) >= sizeof(adir) || (size_t)(bslash - b) >= sizeof(bdir))
+        return false;
+    snprintf(adir, sizeof(adir), "%.*s/", (int)(aslash - a), a);
+    snprintf(bdir, sizeof(bdir), "%.*s/", (int)(bslash - b), b);
+    struct stat ast, bst;
+    return !stat(adir, &ast) && !stat(bdir, &bst) &&
+           ast.st_dev == bst.st_dev && ast.st_ino == bst.st_ino;
+}
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -284,13 +392,16 @@ static pappl_system_t *system_cb(int num_options, cups_option_t *options, void *
     const app_t *app = data;
     settings_t settings = settings_load(app, num_options, options);
 
-    // The service, as root, has papplMainloop's own domain socket listener,
-    // which is added after this callback and reads SNAP_COMMON again, put in
-    // SERVICE_DIRECTORY; it sets the variable before the system can start
-    // threads. Run as any other user, it listens there itself, below.
-    bool service = app->server && is_service();
-    if (service && !getuid())
-        setenv("SNAP_COMMON", SERVICE_DIRECTORY, 1);
+    if (app->server && runtime_socket[0]) {
+        if (cupsGetOption("private-server", num_options, options)) {
+            fprintf(stderr, "%s: Private-server fallback is disabled with "
+                    "PHOMEMO_RUNTIME_DIRECTORY; start the packaged server explicitly.\n",
+                    app->name);
+            return NULL;
+        }
+        if (!runtime_claim(app))
+            return NULL;
+    }
 
     // Multi-queue: the Bluetooth connection manager keeps one link per
     // printer address, so several printers can coexist.
@@ -335,15 +446,15 @@ static pappl_system_t *system_cb(int num_options, cups_option_t *options, void *
 
     // papplMainloop also creates a system to list its drivers, which needs
     // neither listeners nor state.
-    if (app->server)
-        papplSystemAddListeners(system, settings.listen_hostname);
-
-    if (service && getuid()) {
-        char socket_path[256];
-        int length = snprintf(socket_path, sizeof(socket_path),
-                              SERVICE_DIRECTORY "/%s.sock", app->name);
-        if (length > 0 && (size_t)length < sizeof(socket_path))
-            papplSystemAddListeners(system, socket_path);
+    if (app->server) {
+        char socket_path[1024];
+        _papplMainloopGetServerPath(app->name, getuid(), socket_path, sizeof(socket_path));
+        // papplMainloop adds the CLI socket after this callback.
+        if (!same_socket_path(settings.listen_hostname, socket_path) &&
+            !papplSystemAddListeners(system, settings.listen_hostname)) {
+            papplSystemDelete(system);
+            return NULL;
+        }
     }
 
     if (settings.admin_group)
@@ -433,6 +544,14 @@ static void usage_cb(void *data) {
                settings_table[i].option, settings_table[i].values);
 
     puts("\n"
+         "Runtime socket (server and CLI):\n"
+         "  PHOMEMO_RUNTIME_DIRECTORY  Existing writable private directory (mode 0700),\n"
+         "      owned by the current user; non-empty absolute path, no final symlink.\n"
+         "      Both server and CLI must use the same directory and executable name.\n"
+         "      The full DIRECTORY/NAME.sock path must fit a UNIX socket (107 bytes on Linux).\n"
+         "      Private-server auto-start is disabled; start 'server' explicitly.\n"
+         "      Unset to use native systemd/PAPPL socket discovery.\n"
+         "\n"
          "Bluetooth:\n"
          "  PHOMEMO_BT_CHANNELS      RFCOMM channels to try, comma-separated");
 }
@@ -665,11 +784,19 @@ static bool runs_server(int argc, char *argv[]) {
         if (!strcmp(arg, "--")) {
             i++;
         } else if (arg[0] == '-' && arg[1]) {
-            // As papplMainloop does (mainloop.c), once per letter but by the
-            // first letter alone: "-ad" takes no value, "-dd" two.
+            // PAPPL 1.4 mainloop.c switches on argv[i][1], not *opt.
+            // Consuming a value changes i *inside* this loop, so later
+            // letters inspect that value: "-dd -a server" runs a server.
+            // Match that quirk exactly; classification gates socket safety.
             for (const char *opt = arg + 1; *opt; opt++) {
-                if (strchr("dhjmnotuv", arg[1]))  // the options taking a value
-                    i++;
+                if (!argv[i][0] || !argv[i][1])
+                    return false;
+                if (strchr("dhjmnotuv", argv[i][1])) {
+                    if (++i >= argc)
+                        return false;
+                } else if (argv[i][1] != 'a') {
+                    return false;  // PAPPL will report an unknown option
+                }
             }
         } else if (!strcmp(arg, "server")) {
             return true;
@@ -684,19 +811,35 @@ int main(int argc, char *argv[]) {
     app_t app = {
         .name   = slash ? slash + 1 : path,
         .server = runs_server(argc, argv),
+        .runtime_fd = -1,
     };
-
-    // See SERVICE_DIRECTORY.
-    unsetenv("SNAP_COMMON");
-    if (!app.server && !access(SERVICE_DIRECTORY, X_OK))
-        setenv("SNAP_COMMON", SERVICE_DIRECTORY, 1);
 
     if (argc > 1 &&
         (!strcmp(argv[1], "register-cups") || !strcmp(argv[1], "unregister-cups")))
         return cups_subcommand(&app, argc, argv);
 
+    // Standalone help/version need no runtime directory, even with a broken
+    // launcher. Leave compound command parsing and errors to papplMainloop.
+    if (argc == 2 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "--version"))) {
+        if (!strcmp(argv[1], "--help"))
+            usage_cb(&app);
+        else
+            puts(PHOMEMO_VERSION);
+        return 0;
+    }
+
+    if (!runtime_init(&app)) {
+        if (app.runtime_fd >= 0)
+            close(app.runtime_fd);
+        return 1;
+    }
+    service_server = app.server && !getenv("SNAP_COMMON") && is_service();
+    server_command = app.server;
+
     if (!build_driver_table(&app)) {
         fprintf(stderr, "%s: Unable to allocate the driver table.\n", app.name);
+        if (app.runtime_fd >= 0)
+            close(app.runtime_fd);
         return 1;
     }
 
@@ -710,5 +853,7 @@ int main(int argc, char *argv[]) {
                                system_cb, usage_cb, &app);
 
     free(app.drivers);
+    if (app.runtime_fd >= 0)
+        close(app.runtime_fd);
     return status;
 }

@@ -1,0 +1,154 @@
+name: phomemo-printer-app
+base: core24
+adopt-info: phomemo
+title: Phomemo Printer Application
+summary: Bluetooth Phomemo thermal printer application
+description: |
+  A local IPP printer application for Phomemo thermal printers, with a web
+  interface at http://localhost:8000 and a background system service.
+  Pair printers using the host's Bluetooth tools before adding them.
+
+  The daemon runs as root. Run the CLI with sudo to manage its private socket:
+  sudo phomemo-printer-app status
+  sudo phomemo-printer-app register-cups
+
+  Connect bluez and avahi-control, and connect cups-control to administer the
+  host CUPS scheduler. Configuration keys are port (default 8000) and
+  listen-hostname (default localhost; loopback addresses only). Restart the
+  daemon after changing configuration with snap set.
+grade: stable
+confinement: strict
+license: Apache-2.0
+
+# Native builds only; build each platform on a runner of the same architecture.
+platforms:
+  amd64:
+  arm64:
+
+environment:
+  LD_LIBRARY_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+  PATH: $SNAP/usr/sbin:$SNAP/usr/bin:$SNAP/bin:$PATH
+
+# libcups 2.x defaults root server credentials to this compiled-in path.
+# A layout keeps certificates writable and persistent without changing SNAP_COMMON.
+layout:
+  /etc/cups/ssl:
+    bind: $SNAP_COMMON/ssl
+
+apps:
+  phomemo-printer-app:
+    command-chain: [usr/libexec/phomemo/runtime-setup]
+    command: usr/bin/phomemo-printer-app
+    environment:
+      CUPS_SERVER: /run/cups/cups.sock
+    plugs: [network, cups-control]
+  daemon:
+    command-chain: [usr/libexec/phomemo/runtime-setup]
+    command: usr/bin/phomemo-printer-app server
+    daemon: simple
+    daemon-scope: system
+    install-mode: enable
+    restart-condition: on-failure
+    restart-delay: 5s
+    # PAPPL handles SIGTERM and allows active jobs up to 60 seconds to finish.
+    stop-mode: sigterm
+    stop-timeout: 90s
+    plugs: [network, network-bind, bluez, avahi-control]
+
+parts:
+  pappl:
+    plugin: autotools
+    source: https://github.com/michaelrsweet/pappl.git
+    source-type: git
+    # PAPPL v1.4.12, peeled tag commit. Do not replace with PAPPL 2.x.
+    source-commit: 6db8e137557ad84662e78d24fdb2a591c621f4ac
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --libdir=/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+      - --enable-shared
+      - --disable-static
+      - --with-dnssd=avahi
+      - --with-tls=gnutls
+      - --enable-libjpeg
+      - --enable-libpng
+      - --disable-libusb
+      - --disable-libpam
+    build-packages:
+      - pkg-config
+      - libcups2-dev
+      - libavahi-client-dev
+      - libgnutls28-dev
+      - libjpeg-dev
+      - libpng-dev
+    stage-packages:
+      - libcups2t64
+      - libavahi-client3
+      - libgnutls30t64
+      - libjpeg-turbo8
+      - libpng16-16t64
+    override-build: |
+      # PAPPL explicitly forbids autoreconf/autoheader/automake. Generate only
+      # configure, which prevents the autotools plugin from bootstrapping it.
+      autoconf -f
+      craftctl default
+      install -Dm644 "$CRAFT_PART_SRC/LICENSE" \
+        "$CRAFT_PART_INSTALL/usr/share/doc/pappl/copyright"
+    prime:
+      - usr/lib/*/lib*.so*
+      - usr/share/pappl
+      - usr/share/doc/*/copyright
+      - -usr/lib/*/pkgconfig
+      # Use core24's loader and glibc together, even when APT has newer updates.
+      - -usr/lib/*/ld-linux*
+      - -usr/lib/*/libc.so.*
+
+  phomemo:
+    after: [pappl]
+    source: .
+    # Use the Rust plugin for its pinned toolchain, then the existing Makefile
+    # for the Rust staticlib, cbindgen header and C executable, and DESTDIR install.
+    plugin: rust
+    rust-channel: '1.87.0'
+    rust-ignore-toolchain-file: true
+    build-environment:
+      - RUSTUP_TOOLCHAIN: '1.87.0'
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig
+      - CPPFLAGS: -I$CRAFT_STAGE/usr/include
+      - CFLAGS: -O2
+      - LDFLAGS: -L$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,--export-dynamic-symbol=_papplMainloopGetServerPath
+    build-packages: [make, binutils, python3, shellcheck]
+    # cups-client includes both lpstat and lpadmin; no CUPS daemon is bundled.
+    stage-packages: [cups-client]
+    prime:
+      - usr/bin/phomemo-printer-app
+      - usr/bin/lpstat
+      - usr/sbin/lpadmin
+      - usr/lib/*/lib*.so*
+      - usr/libexec/phomemo
+      - usr/share/cups/locale
+      - usr/share/doc/*/copyright
+      - -usr/lib/*/ld-linux*
+      - -usr/lib/*/libc.so.*
+    override-build: |
+      set -eu
+      cargo install cbindgen --version 0.28.0 --locked --root "$CRAFT_PART_BUILD/build-tools"
+      # Never package a pre-existing host/Nix binary or generated header.
+      rm -rf "$CRAFT_PART_BUILD/generated" "$CRAFT_PART_BUILD/phomemo-printer-app"
+      make -j"$CRAFT_PARALLEL_BUILD_COUNT" PREFIX=/usr \
+        CARGO_TARGET_DIR="$CRAFT_PART_BUILD/cargo-target" \
+        CBINDGEN="$CRAFT_PART_BUILD/build-tools/bin/cbindgen"
+      make install PREFIX=/usr DESTDIR="$CRAFT_PART_INSTALL"
+      install -Dm755 "$CRAFT_PART_SRC/snap/local/runtime-setup" \
+        "$CRAFT_PART_INSTALL/usr/libexec/phomemo/runtime-setup"
+      install -Dm644 "$CRAFT_PART_SRC/snap/local/config.sh" \
+        "$CRAFT_PART_INSTALL/usr/libexec/phomemo/config.sh"
+      install -Dm644 "$CRAFT_PART_SRC/LICENSE" \
+        "$CRAFT_PART_INSTALL/usr/share/doc/phomemo-printer-app/copyright"
+      craftctl set version="$(python3 -c 'import tomllib; print(tomllib.load(open("phomemo-pappl/Cargo.toml", "rb"))["package"]["version"])')"
+    override-prime: |
+      craftctl default
+      # Test the actual primed binary against the bundled shared PAPPL, including
+      # symbol interposition, root SNAP_COMMON discovery and state persistence.
+      python3 "$CRAFT_PART_SRC/snap/local/verify-prime.py" \
+        --prime "$CRAFT_PRIME" --source "$CRAFT_PART_SRC" \
+        --triplet "$CRAFT_ARCH_TRIPLET_BUILD_FOR"

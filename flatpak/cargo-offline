@@ -1,0 +1,3 @@
+#!/bin/sh
+# Build-only executable path: cbindgen interprets CARGO as one executable name.
+exec /usr/lib/sdk/rust-stable/bin/cargo --frozen "$@"

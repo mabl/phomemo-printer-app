@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Phomemo Printer App (Experimental)
+Comment=Start the session printer server and open its web interface; use Stop Server to stop printing
+Exec=phomemo-launcher
+Icon=io.github.mabl.phomemo-printer-app
+Terminal=false
+Categories=Settings;HardwareSettings;Printing;
+Keywords=Phomemo;Bluetooth;Label;Printer;
+Actions=Stop;
+
+[Desktop Action Stop]
+Name=Stop Phomemo Server
+Exec=phomemo-launcher --stop

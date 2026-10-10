@@ -7,6 +7,7 @@
   rust-cbindgen,
   pkg-config,
   pappl,
+  python3,
 }:
 
 stdenv.mkDerivation (finalAttrs: {
@@ -24,6 +25,7 @@ stdenv.mkDerivation (finalAttrs: {
       ./docs/models.md # read by a test that keeps it current
       ./phomemo-pappl
       ./phomemo-protocol
+      ./scripts/test_packaged_runtime.py
       ./systemd
     ];
   };
@@ -38,6 +40,7 @@ stdenv.mkDerivation (finalAttrs: {
     rustPlatform.cargoSetupHook
     rust-cbindgen
     pkg-config
+    python3
   ];
 
   buildInputs = [ pappl ]; # PAPPL 1.x: the driver uses the 1.4 callback signatures
@@ -49,6 +52,17 @@ stdenv.mkDerivation (finalAttrs: {
   checkPhase = ''
     runHook preCheck
     cargo test --release --workspace --locked
+
+    # Keep the normal binary's native paths. Compile only the service variant
+    # in scratch space, reusing this build's Rust library and generated header.
+    service_directory="$TMPDIR/service"
+    service_binary="$TMPDIR/service-binary"
+    make all BIN="$service_binary" \
+      "CPPFLAGS=-DSERVICE_DIRECTORY=\\\"$service_directory\\\""
+    python3 "$PWD/scripts/test_packaged_runtime.py" \
+      --binary "$PWD/phomemo-printer-app" \
+      --service-binary "$service_binary" \
+      --service-directory "$service_directory"
     runHook postCheck
   '';
 
