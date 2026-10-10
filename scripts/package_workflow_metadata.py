@@ -118,7 +118,17 @@ def release_info(tag):
     )
     if result.returncode:
         if "(HTTP 404)" in result.stderr:
-            return None
+            # GitHub's tag endpoint omits drafts even with maintainer auth.
+            # List with the same gh credentials and inspect every page before
+            # deciding the tag is absent or uniquely identifies a release.
+            pages = json.loads(gh(
+                "api", "--paginate", "--slurp", f"repos/{REPOSITORY}/releases",
+                capture_output=True, text=True,
+            ).stdout)
+            matches = [release for page in pages for release in page if release["tag_name"] == tag]
+            if len(matches) > 1:
+                raise ValueError(f"Multiple releases match tag {tag!r}")
+            return matches[0] if matches else None
         raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
     return json.loads(result.stdout)
 

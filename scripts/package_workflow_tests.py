@@ -29,6 +29,11 @@ class GitHub:
         self.upload_extra = False
         self.corrupt_upload = False
         self.api_failure = False
+        self.tag_endpoint_404 = False
+        self.tag_endpoint_hides_drafts = True
+        self.tag_error = None
+        self.list_error = None
+        self.release_pages = None
         self.move_tag_on_download = False
         self.extra_on_download = False
 
@@ -49,11 +54,22 @@ class GitHub:
                         for index, (name, data) in enumerate(self.assets.items())]
                 stdout = json.dumps([rows[:2], rows[2:]])
             elif "/releases/tags/" in endpoint:
-                if self.api_failure:
-                    return subprocess.CompletedProcess(command, 1, "", "gh: unavailable (HTTP 503)")
-                if self.release is None:
+                if self.api_failure or self.tag_error:
+                    return subprocess.CompletedProcess(command, 1, "", self.tag_error or "gh: unavailable (HTTP 503)")
+                if (self.release is None or self.tag_endpoint_404
+                        or (self.tag_endpoint_hides_drafts and self.release["draft"])):
                     return subprocess.CompletedProcess(command, 1, "", "gh: Not Found (HTTP 404)")
                 stdout = json.dumps(self.release)
+            elif endpoint == f"repos/{metadata.REPOSITORY}/releases":
+                if self.list_error:
+                    if kwargs.get("check"):
+                        raise subprocess.CalledProcessError(1, command, "", self.list_error)
+                    return subprocess.CompletedProcess(command, 1, "", self.list_error)
+                pages = self.release_pages
+                if pages is None:
+                    pages = [[dict(id=999, tag_name="v99.0.0", draft=False)],
+                             [self.release] if self.release is not None else []]
+                stdout = json.dumps(pages)
             else:
                 raise AssertionError(endpoint)
         elif args[:2] == ["release", "create"]:
@@ -91,9 +107,93 @@ class GitHub:
             raise AssertionError(command)
         if command[1] == "release" and command[command.index("--repo") + 1] != metadata.REPOSITORY:
             raise AssertionError("Repository was not explicitly bound")
+        if command[-1] == f"repos/{metadata.REPOSITORY}/releases":
+            if "--paginate" not in command or "--slurp" not in command:
+                raise AssertionError("Release discovery did not request every page")
 
     def mutations(self):
         return [call[2] for call in self.calls if call[1] == "release" and call[2] != "download"]
+
+
+class ReleaseInfoTests(unittest.TestCase):
+    tag = "v0.1.0"
+
+    def lookup(self, github):
+        with patch.object(metadata.subprocess, "run", side_effect=github.run):
+            return metadata.release_info(self.tag)
+
+    def test_published_release_uses_tag_endpoint(self):
+        github = GitHub(self.tag, draft=False)
+        self.assertEqual(self.lookup(github), github.release)
+        self.assertEqual(github.calls, [["gh", "api", f"repos/{metadata.REPOSITORY}/releases/tags/{self.tag}"]])
+
+    def test_missing_release_checks_all_pages(self):
+        github = GitHub(self.tag, present=False)
+        for pages in ([], [[]], [[dict(tag_name="v0.1.0-rc.1")], [], [dict(tag_name="v0.1.00")]]):
+            with self.subTest(pages=pages):
+                github.release_pages = pages
+                self.assertIsNone(self.lookup(github))
+        self.assertEqual(github.mutations(), [])
+
+    def test_draft_and_published_fallback_matches_on_any_page(self):
+        for draft in (True, False):
+            for index in range(3):
+                with self.subTest(draft=draft, page=index):
+                    github = GitHub(self.tag, draft=draft)
+                    github.tag_endpoint_404 = True
+                    github.release_pages = [[dict(tag_name="v99.0.0")], [], [dict(tag_name="v0.1.0-rc.1")]]
+                    github.release_pages[index].append(github.release)
+                    self.assertEqual(self.lookup(github), github.release)
+                    self.assertEqual(len(github.calls), 2)
+
+    def test_fallback_inherits_gh_authentication(self):
+        for variable in ("GH_TOKEN", "GITHUB_TOKEN"):
+            with self.subTest(variable=variable), patch.dict(os.environ, {variable: "mock-token"}, clear=True):
+                github = GitHub(self.tag)
+
+                def authenticated(command, **kwargs):
+                    self.assertEqual(os.environ[variable], "mock-token")
+                    self.assertNotIn("env", kwargs)
+                    self.assertNotIn("mock-token", command)
+                    return github.run(command, **kwargs)
+
+                with patch.object(metadata.subprocess, "run", side_effect=authenticated):
+                    self.assertEqual(metadata.release_info(self.tag), github.release)
+                self.assertEqual(len(github.calls), 2)
+
+    def test_tag_errors_propagate_without_fallback(self):
+        for error in ("gh: Unauthorized (HTTP 401)", "gh: Forbidden (HTTP 403)",
+                      "gh: unavailable (HTTP 503)", "gh: connection failed"):
+            with self.subTest(error=error):
+                github = GitHub(self.tag)
+                github.tag_error = error
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.lookup(github)
+                self.assertEqual(raised.exception.stderr, error)
+                self.assertEqual(len(github.calls), 1)
+
+    def test_list_errors_propagate_including_404_and_auth_failures(self):
+        for error in ("gh: Not Found (HTTP 404)", "gh: Unauthorized (HTTP 401)",
+                      "gh: Forbidden (HTTP 403)", "gh: unavailable (HTTP 503)", "gh: connection failed"):
+            with self.subTest(error=error):
+                github = GitHub(self.tag)
+                github.list_error = error
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.lookup(github)
+                self.assertEqual(raised.exception.stderr, error)
+                self.assertEqual(len(github.calls), 2)
+
+    def test_duplicate_matches_fail_closed_within_and_across_pages(self):
+        for draft in (True, False):
+            for same_page in (True, False):
+                with self.subTest(draft=draft, same_page=same_page):
+                    github = GitHub(self.tag)
+                    other = dict(github.release, id=456, draft=draft)
+                    github.release_pages = ([[github.release, other]] if same_page
+                                            else [[github.release], [], [other]])
+                    with self.assertRaisesRegex(ValueError, "Multiple releases match tag"):
+                        self.lookup(github)
+                    self.assertEqual(github.mutations(), [])
 
 
 class WorkflowTests(unittest.TestCase):
@@ -229,6 +329,9 @@ class WorkflowTests(unittest.TestCase):
     def test_wrong_tag_target_or_release_target_rejected(self):
         for draft in (True, False):
             github = GitHub(self.tag, draft=draft)
+            # Return a mismatched tag response to exercise the target gate even
+            # though real draft discovery filters list results by exact tag.
+            github.tag_endpoint_hides_drafts = False
             github.assets = dict(self.bytes)
             github.target["sha"] = "b" * 40
             with self.assertRaises(ValueError):
@@ -292,6 +395,21 @@ class WorkflowTests(unittest.TestCase):
         github = GitHub(self.tag)
         github.api_failure = True
         with self.assertRaises(subprocess.CalledProcessError):
+            self.publish(github)
+        self.assertEqual(github.mutations(), [])
+
+    def test_list_errors_and_duplicate_releases_precede_mutations(self):
+        for error in ("gh: Not Found (HTTP 404)", "gh: Unauthorized (HTTP 401)",
+                      "gh: Forbidden (HTTP 403)", "gh: unavailable (HTTP 503)"):
+            with self.subTest(error=error):
+                github = GitHub(self.tag, present=False)
+                github.list_error = error
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.publish(github)
+                self.assertEqual(github.mutations(), [])
+        github = GitHub(self.tag)
+        github.release_pages = [[github.release], [dict(github.release, id=456, draft=False)]]
+        with self.assertRaisesRegex(ValueError, "Multiple releases match tag"):
             self.publish(github)
         self.assertEqual(github.mutations(), [])
 
